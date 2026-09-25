@@ -42,6 +42,18 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   FORBIDDEN: { message: "You are not allowed to do that.", status: 403 },
   TICKET_NOT_FOUND: { message: "Request not found.", status: 404 },
   MESSAGE_REQUIRED: { message: "Please write a message.", status: 422 },
+  // --- MVola ---------------------------------------------------------------
+  PAYMENT_NOT_FOUND: { message: "Payment not found.", status: 404 },
+  PAYMENT_ALREADY_REVIEWED: { message: "This payment has already been reviewed.", status: 409 },
+  MVOLA_NOT_CONFIGURED: { message: "Mobile Money payment is not available right now.", status: 503 },
+  MVOLA_DISABLED: { message: "Mobile Money payment is not available right now.", status: 503 },
+  MVOLA_UNAVAILABLE: { message: "Mobile Money payment is not available right now.", status: 503 },
+  MVOLA_REFERENCE_REQUIRED: { message: "Please enter your MVola transaction reference.", status: 422 },
+  MVOLA_REFERENCE_INVALID: { message: "This transaction reference is not valid.", status: 422 },
+  MVOLA_PAYER_INVALID: { message: "Please enter a valid phone number.", status: 422 },
+  MVOLA_DECISION_INVALID: { message: "Invalid decision.", status: 422 },
+  MVOLA_REASON_REQUIRED: { message: "Please explain why the payment is refused.", status: 422 },
+  MVOLA_REASON_INVALID: { message: "This explanation is too long.", status: 422 },
   EMAIL_DELIVERY_FAILED: { message: "We could not send the confirmation email. Please try again.", status: 502 },
   SERVICE_NOT_CONFIGURED: { message: "This service is temporarily unavailable.", status: 503 },
   INVALID_WEBHOOK: { message: "Invalid webhook.", status: 400 },
@@ -93,6 +105,19 @@ export function translateDbError(error: { message?: string; code?: string } | nu
     "FORBIDDEN",
     "TICKET_NOT_FOUND",
     "MESSAGE_REQUIRED",
+    // MVola. Longest first is handled by the loop order below; these are all
+    // distinct prefixes so no code shadows another.
+    "PAYMENT_ALREADY_REVIEWED",
+    "PAYMENT_NOT_FOUND",
+    "MVOLA_REFERENCE_REQUIRED",
+    "MVOLA_REFERENCE_INVALID",
+    "MVOLA_REASON_REQUIRED",
+    "MVOLA_REASON_INVALID",
+    "MVOLA_DECISION_INVALID",
+    "MVOLA_PAYER_INVALID",
+    "MVOLA_NOT_CONFIGURED",
+    "MVOLA_UNAVAILABLE",
+    "MVOLA_DISABLED",
   ];
   for (const code of known) {
     if (raw.includes(code)) {

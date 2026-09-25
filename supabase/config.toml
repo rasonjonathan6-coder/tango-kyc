@@ -396,9 +396,19 @@ deno_version = 2
 verify_jwt = false
 
 [functions.admin-actions]
-verify_jwt = false
+# Keep the platform JWT gate on: this is the admin surface. The function also
+# checks the caller's role in code, so an absent/invalid token is rejected at the
+# gateway and a valid non-admin token is rejected as 403 inside the function.
+verify_jwt = true
 
 [functions.email-webhook]
+verify_jwt = false
+
+[functions.mvola-payments]
+# Same reasoning as create-kyc-request: the function calls `requireUser`, which
+# verifies the access token against Supabase Auth, and every SQL function it
+# invokes derives the actor from auth.uid(). An anonymous caller is rejected in
+# code with 401.
 verify_jwt = false
 
 [analytics]

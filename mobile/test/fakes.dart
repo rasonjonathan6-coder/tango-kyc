@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:tango_kyc_verification/models/models.dart';
 import 'package:tango_kyc_verification/services/auth_service.dart';
 import 'package:tango_kyc_verification/services/kyc_service.dart';
+import 'package:tango_kyc_verification/services/mvola_service.dart';
 
 class FakeAuthService implements AuthService {
   FakeAuthService({
@@ -140,5 +141,166 @@ class FakeKycService implements KycService {
   @override
   Future<void> reply(String ticketId, String body) async {
     replyCalls += 1;
+  }
+}
+
+/// In-memory MVola service. Mirrors the real backend rules that matter to the
+/// controller: one active payment per ticket, an approved payment is final, and
+/// a rejected payment lets the user start again.
+class FakeMvolaService implements MvolaService {
+  FakeMvolaService({
+    this.failWithCode,
+    this.failSubmitWithCode,
+    MvolaConfig? config,
+    List<MvolaPayment>? payments,
+  })  : configValue = config ?? _defaultConfig,
+        _payments = List<MvolaPayment>.from(payments ?? const []);
+
+  static const _defaultConfig = MvolaConfig(
+    recipientNumber: '0346715622',
+    amount: 20000,
+    currency: 'MGA',
+    ussdCode: '#111*1*0346715622*20000*2#',
+    instructions: 'Open your MVola app and confirm the transfer.',
+  );
+
+  final String? failWithCode;
+
+  /// Fails only the submit call, so a test can reach `submit` with a real
+  /// payment already created.
+  final String? failSubmitWithCode;
+  final MvolaConfig configValue;
+  final List<MvolaPayment> _payments;
+
+  int configCalls = 0;
+  int startCalls = 0;
+  int submitCalls = 0;
+
+  void _maybeFail() {
+    if (failWithCode != null) {
+      throw KycServiceException(failWithCode!, 'boom');
+    }
+  }
+
+  @override
+  Future<MvolaConfig> config() async {
+    configCalls += 1;
+    _maybeFail();
+    return configValue;
+  }
+
+  @override
+  Future<MvolaPayment> start(String ticketId) async {
+    startCalls += 1;
+    _maybeFail();
+    for (final payment in _payments) {
+      if (payment.ticketId == ticketId && payment.status != MvolaStatus.rejected) {
+        return payment;
+      }
+    }
+    final created = MvolaPayment(
+      id: 'pay-${_payments.length + 1}',
+      ticketId: ticketId,
+      amount: configValue.amount,
+      currency: configValue.currency,
+      recipientNumber: configValue.recipientNumber,
+      ussdCode: configValue.ussdCode,
+      status: MvolaStatus.pending,
+      createdAt: DateTime(2026, 9, 25, 10),
+    );
+    _payments.insert(0, created);
+    return created;
+  }
+
+  @override
+  Future<MvolaPayment> submit({
+    required String paymentId,
+    required String transactionReference,
+    String? payerNumber,
+  }) async {
+    submitCalls += 1;
+    if (failSubmitWithCode != null) {
+      throw KycServiceException(failSubmitWithCode!, 'boom');
+    }
+    _maybeFail();
+    // Mirror `mvola_submit_payment`: an empty reference never reaches the DB.
+    if (transactionReference.trim().isEmpty) {
+      throw const KycServiceException('MVOLA_REFERENCE_REQUIRED', 'reference required');
+    }
+    final index = _payments.indexWhere((p) => p.id == paymentId);
+    if (index < 0) throw const KycServiceException('PAYMENT_NOT_FOUND', 'not found');
+    final current = _payments[index];
+    final updated = MvolaPayment(
+      id: current.id,
+      ticketId: current.ticketId,
+      amount: current.amount,
+      currency: current.currency,
+      recipientNumber: current.recipientNumber,
+      ussdCode: current.ussdCode,
+      status: current.status,
+      createdAt: current.createdAt,
+      transactionReference: transactionReference,
+      payerNumber: payerNumber,
+      submittedAt: DateTime(2026, 9, 25, 11),
+    );
+    _payments[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<List<MvolaPayment>> mine() async {
+    _maybeFail();
+    return List.unmodifiable(_payments);
+  }
+}
+
+/// In-memory admin MVola service.
+class FakeAdminMvolaService implements AdminMvolaService {
+  FakeAdminMvolaService({this.failWithCode, List<MvolaPayment>? payments})
+      : _payments = List<MvolaPayment>.from(payments ?? const []);
+
+  final String? failWithCode;
+  final List<MvolaPayment> _payments;
+
+  int listCalls = 0;
+  int decideCalls = 0;
+  String? lastReason;
+
+  @override
+  Future<List<MvolaPayment>> list() async {
+    listCalls += 1;
+    if (failWithCode != null) throw KycServiceException(failWithCode!, 'boom');
+    return List.unmodifiable(_payments);
+  }
+
+  @override
+  Future<MvolaPayment> decide({
+    required String paymentId,
+    required MvolaStatus decision,
+    String? reason,
+  }) async {
+    decideCalls += 1;
+    lastReason = reason;
+    if (failWithCode != null) throw KycServiceException(failWithCode!, 'boom');
+    final index = _payments.indexWhere((p) => p.id == paymentId);
+    if (index < 0) throw const KycServiceException('PAYMENT_NOT_FOUND', 'not found');
+    final current = _payments[index];
+    final updated = MvolaPayment(
+      id: current.id,
+      ticketId: current.ticketId,
+      amount: current.amount,
+      currency: current.currency,
+      recipientNumber: current.recipientNumber,
+      ussdCode: current.ussdCode,
+      status: decision,
+      createdAt: current.createdAt,
+      transactionReference: current.transactionReference,
+      payerNumber: current.payerNumber,
+      rejectionReason: reason,
+      submittedAt: current.submittedAt,
+      reviewedAt: DateTime(2026, 9, 25, 12),
+    );
+    _payments[index] = updated;
+    return updated;
   }
 }

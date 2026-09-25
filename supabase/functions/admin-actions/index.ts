@@ -20,6 +20,10 @@ interface Body {
   /** Quarantine row id, for `resolve_unmatched`. */
   unmatched_id?: string;
   reason?: string;
+  /** MVola payment id, for `mvola_decision`. */
+  payment_id?: string;
+  /** "approved" | "rejected", for `mvola_decision`. */
+  decision?: string;
 }
 
 Deno.serve(async (req) => {
@@ -121,6 +125,33 @@ Deno.serve(async (req) => {
 
         const notified = await notifyOwner(payload.ticket_id);
         return jsonResponse({ resolved: data, user_notified: notified });
+      }
+
+      // --- MVola ---------------------------------------------------------
+      // The admin role was already verified by requireAdmin above, and the SQL
+      // functions assert public.is_admin() again, so a non-admin token cannot
+      // reach a decision even if it got past this switch.
+      case "mvola_list": {
+        const { data, error } = await asAdmin.rpc("admin_mvola_list");
+        if (error) throw translateDbError(error);
+        return jsonResponse({ payments: data ?? [] });
+      }
+
+      case "mvola_decision": {
+        if (!payload.payment_id) throw new AppError("PAYMENT_NOT_FOUND", "Missing payment_id", 422);
+        if (payload.decision !== "approved" && payload.decision !== "rejected") {
+          throw new AppError("MVOLA_DECISION_INVALID", "Invalid decision", 422);
+        }
+        const reason = (payload.reason ?? "").trim();
+        if (reason.length > 500) throw new AppError("MVOLA_REASON_INVALID", "Reason too long", 422);
+
+        const { data, error } = await asAdmin.rpc("admin_mvola_set_decision", {
+          p_payment_id: payload.payment_id,
+          p_decision: payload.decision,
+          p_reason: reason || null,
+        });
+        if (error) throw translateDbError(error);
+        return jsonResponse({ payment: data });
       }
 
       default:
