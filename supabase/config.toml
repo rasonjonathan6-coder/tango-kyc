@@ -396,7 +396,10 @@ deno_version = 2
 verify_jwt = false
 
 [functions.admin-actions]
-verify_jwt = false
+# Keep the platform JWT gate on: this is the admin surface. The function also
+# checks the caller's role in code, so an absent/invalid token is rejected at the
+# gateway and a valid non-admin token is rejected as 403 inside the function.
+verify_jwt = true
 
 [functions.email-webhook]
 verify_jwt = false

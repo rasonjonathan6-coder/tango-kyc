@@ -94,3 +94,13 @@ bash tests/scripts/e2e_local.sh
 - **`supabase status -o env` emits `ANON_KEY` / `SERVICE_ROLE_KEY`**, but
   `tests/scripts/e2e_local.sh` expects `SUPABASE_ANON_KEY` /
   `SUPABASE_SERVICE_ROLE_KEY`. Map them explicitly when exporting.
+- **`admin-actions` runs with `verify_jwt = true`** (see `supabase/config.toml`).
+  Do not deploy it with `--no-verify-jwt`: that would drop the platform gate and
+  leave the admin surface guarded by in-code checks alone. The other two
+  functions do their own auth (user JWT / Svix signature), so they stay `false`.
+- **`handle_new_user` only fires on INSERT into `auth.users`.** Any user created
+  before the trigger existed has no `profiles` row, and `is_admin()` reads
+  `profiles`, so such a user is locked out of the admin dashboard even when their
+  `app_metadata.role` is `admin`. Backfill with the trigger's own mapping
+  (`full_name` → `name` → email local part, role from `app_metadata`). The real
+  admin account needed this after migrations were applied to the cloud project.
