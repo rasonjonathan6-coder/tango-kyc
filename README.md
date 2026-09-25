@@ -14,7 +14,7 @@ external account is marked *needs configuration* and is never faked.
 | Capability | State |
 | --- | --- |
 | Email + password sign-up / sign-in / sign-out | Verified against the local Auth API; wrong password rejected |
-| Password reset request (email is sent, link resolves) | Verified that the reset email is emitted and captured in Mailpit. Following the deep link and setting a new password is exercised manually — see note below |
+| Password reset request (email sent, redirect reaches the app's deep link) | Verified that the reset email is emitted, that its link redirects to the app's deep-link scheme, and that recovery routing is unit-tested. Setting the new password is exercised manually — see note below |
 | Google sign-in | Implemented, **needs configuration** (see `docs/GOOGLE_AUTH_SETUP.md`) |
 | KYC request creation, unique ticket code, dedup, rate limiting | Verified |
 | Server-side validation (link scheme, email/phone detection and normalisation) | Verified |
@@ -27,17 +27,23 @@ external account is marked *needs configuration* and is never faked.
 | Quarantine for unmatched replies, admin-only | Verified |
 | Clean reply body extraction (HTML → text, headers/quotes stripped) | Verified |
 | User notification email on a new reply | Implemented; needs a Resend key and a verified domain |
-| Flutter UI: splash, login, register, forgot/reset, home, create request, my requests, details, profile, settings, admin dashboard | Verified (`flutter analyze` clean, 63 tests pass) |
+| Flutter UI: splash, login, register, forgot/reset, home, create request, my requests, details, profile, settings, admin dashboard | Verified (`flutter analyze` clean, 69 tests pass) |
 | Debug APK build | Verified |
 
 Nothing in this repository fabricates a result. Where a provider is not
 configured the backend fails loudly rather than reporting success.
 
-**Note on password reset.** The automated suite confirms the reset email is sent
-and that the signed-in guards behave correctly, but it does not click the link —
-that requires a running app instance to receive the deep link. The reset screen
-and the deep-link handler are implemented; treat the final step as needing a
-manual pass on a device until you have done one.
+**Note on password reset.** The automated suite confirms the reset email is sent,
+that its link redirects to the app's deep-link scheme, and that the recovery
+routing decision is correct. It does not click the link inside a running app —
+that requires a device. Treat the final "type a new password" step as needing a
+manual pass until you have done one.
+
+**Note on the deep-link scheme.** The scheme is `com.tango.kyc.verification`
+(dots, no underscores). Dart's `Uri` parser rejects underscores in a scheme, and
+`app_links` parses incoming links with `Uri.tryParse` and silently discards
+anything it cannot parse, so an underscore there would have made every OAuth and
+recovery callback fail to arrive. A unit test now guards this.
 
 **Note on Google sign-in.** Implemented in the client, but it cannot work until
 you create a Google OAuth client. It is not claimed as verified anywhere in these

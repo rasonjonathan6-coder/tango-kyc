@@ -9,6 +9,34 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/app_config.dart';
 import '../models/models.dart';
 
+/// Result of consuming an OAuth or password-recovery deep link.
+///
+/// Recovery cannot be detected from the callback URL itself: under the PKCE
+/// flow (the default) it arrives as a bare `?code=...` with no `type=recovery`
+/// parameter. The discriminator is recorded in the stored code verifier when
+/// the reset is requested and surfaced here by the auth library.
+enum AuthCallbackOutcome {
+  /// No auth parameters in the link, or no session could be established.
+  notAuthenticated,
+
+  /// A session was established by an ordinary sign-in (OAuth or email link).
+  signedIn,
+
+  /// A session was established by a password-recovery link. The user must be
+  /// taken to the reset-password screen.
+  passwordRecovery,
+}
+
+/// Maps the auth library's `redirectType` to a routing outcome.
+///
+/// `redirectType` is `'passwordRecovery'` for a reset link and `null` for an
+/// ordinary sign-in, so anything other than an explicit recovery marker is
+/// treated as a normal sign-in.
+AuthCallbackOutcome outcomeForRedirectType(String? redirectType) =>
+    redirectType == AuthChangeEvent.passwordRecovery.name
+        ? AuthCallbackOutcome.passwordRecovery
+        : AuthCallbackOutcome.signedIn;
+
 abstract class AuthService {
   Session? get session;
   User? get currentUser;
@@ -24,9 +52,8 @@ abstract class AuthService {
   /// Starts Google OAuth. Returns false when the flow could not be launched.
   Future<bool> signInWithGoogle();
 
-  /// Finalises an OAuth or recovery deep link. Returns true when a session was
-  /// established.
-  Future<bool> handleAuthCallback(Uri uri);
+  /// Finalises an OAuth or recovery deep link.
+  Future<AuthCallbackOutcome> handleAuthCallback(Uri uri);
 
   /// Loads the signed-in user's own profile row. `role` is server-owned and
   /// must never be inferred on the client.
@@ -119,15 +146,20 @@ class SupabaseAuthService implements AuthService {
   }
 
   @override
-  Future<bool> handleAuthCallback(Uri uri) async {
+  Future<AuthCallbackOutcome> handleAuthCallback(Uri uri) async {
     final value = uri.toString();
     final hasAuthParams = value.contains('access_token') ||
         value.contains('code=') ||
         value.contains('error=');
     // Only links that carry auth parameters are ours to consume.
-    if (!hasAuthParams) return false;
+    if (!hasAuthParams) return AuthCallbackOutcome.notAuthenticated;
 
-    await _auth.getSessionFromUrl(uri);
-    return _auth.currentSession != null;
+    final response = await _auth.getSessionFromUrl(uri);
+    if (_auth.currentSession == null) {
+      return AuthCallbackOutcome.notAuthenticated;
+    }
+    // `redirectType` is derived from the stored PKCE code verifier, so it is
+    // correct in both the PKCE and implicit flows.
+    return outcomeForRedirectType(response.redirectType);
   }
 }

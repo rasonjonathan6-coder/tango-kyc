@@ -129,11 +129,10 @@ class _RootGateState extends State<_RootGate> {
     if (!mounted) return;
     final auth = context.read<AuthService>();
     try {
-      final isRecovery = uri.toString().contains('type=recovery');
-      final established = await auth.handleAuthCallback(uri);
-      if (!established || !mounted) return;
+      final outcome = await auth.handleAuthCallback(uri);
+      if (!mounted || outcome == AuthCallbackOutcome.notAuthenticated) return;
 
-      if (isRecovery) {
+      if (outcome == AuthCallbackOutcome.passwordRecovery) {
         setState(() => _recovering = true);
         await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),

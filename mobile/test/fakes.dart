@@ -13,11 +13,15 @@ class FakeAuthService implements AuthService {
   FakeAuthService({
     this.failWith,
     this.profile = const Profile(id: 'fake-user', email: 'user@example.com', role: 'user'),
+    this.callbackOutcome = AuthCallbackOutcome.signedIn,
   });
 
   /// When set, every action throws [AuthException] carrying this message.
   final String? failWith;
   final Profile profile;
+
+  /// Returned by [handleAuthCallback]; lets tests exercise recovery routing.
+  final AuthCallbackOutcome callbackOutcome;
 
   int signInCalls = 0;
   int signUpCalls = 0;
@@ -86,7 +90,8 @@ class FakeAuthService implements AuthService {
   }
 
   @override
-  Future<bool> handleAuthCallback(Uri uri) async => true;
+  Future<AuthCallbackOutcome> handleAuthCallback(Uri uri) async =>
+      callbackOutcome;
 
   @override
   Future<Profile> loadProfile() async => profile;

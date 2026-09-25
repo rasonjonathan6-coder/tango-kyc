@@ -18,7 +18,12 @@ class AppConfig {
   static const String _defineSupabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
   /// Must match the redirect URL registered in Supabase Auth and Google Cloud.
-  static const String oauthRedirectUrl = 'com.tango.kyc.tango_kyc_verification://login-callback';
+  ///
+  /// The scheme deliberately contains no underscore: Dart's `Uri` parser
+  /// rejects underscore characters in a scheme, and `app_links` converts the
+  /// incoming link with `Uri.tryParse`, so an underscore here would make every
+  /// callback silently fail to arrive.
+  static const String oauthRedirectUrl = 'com.tango.kyc.verification://login-callback';
 
   static String get supabaseUrl {
     final value = _defineSupabaseUrl.isNotEmpty

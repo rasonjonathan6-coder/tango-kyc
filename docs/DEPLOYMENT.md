@@ -65,7 +65,7 @@ function rejects a caller it cannot verify; this is covered by the test suites.
 
 Dashboard → **Authentication → URL Configuration**:
 
-- Redirect allow-list: `com.tango.kyc.tango_kyc_verification://login-callback`
+- Redirect allow-list: `com.tango.kyc.verification://login-callback`
 - Providers: email on; Google configured per
   [`GOOGLE_AUTH_SETUP.md`](GOOGLE_AUTH_SETUP.md)
 

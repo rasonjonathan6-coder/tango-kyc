@@ -55,11 +55,13 @@ update public.app_settings
  where key = 'rate_limit';
 ```
 
-Anti-spam has two independent limits: a cooldown between distinct requests
-(`KYC_RATE_LIMIT_MINUTES`, default 10) and a daily ceiling
-(`KYC_RATE_LIMIT_PER_DAY`, default 5). An exact re-submission inside the cooldown
-window is deduplicated to the same ticket rather than rejected, so a user who
-double-taps does not get an error.
+Anti-spam has two independent limits, both stored in the `rate_limit` row of
+`public.app_settings` (not in environment variables): a cooldown between distinct
+requests (`min_seconds_between_requests`, default 300 seconds) and a daily
+ceiling (`max_requests_per_day`, default 5). An exact re-submission inside the
+deduplication window (`duplicate_window_hours`, default 24) is deduplicated to
+the same ticket rather than rejected, so a user who double-taps does not get an
+error.
 
 ## 5. Auth settings
 
@@ -74,7 +76,7 @@ Dashboard → **Authentication → URL Configuration**:
 - **Site URL**: your web origin, if you add one.
 - **Redirect URLs**: add the app's deep link exactly as registered in
   `AppConfig.oauthRedirectUrl`:
-  `com.tango.kyc.tango_kyc_verification://login-callback`
+  `com.tango.kyc.verification://login-callback`
 
 The password-reset email deep-links back into the app through the same scheme.
 

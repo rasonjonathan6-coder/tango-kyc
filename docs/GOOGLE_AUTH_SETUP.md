@@ -11,7 +11,7 @@ The app's identity, used in all three systems below, is:
 | Setting | Value |
 | --- | --- |
 | Android package name / application ID | `com.tango.kyc.tango_kyc_verification` |
-| Deep link scheme + host | `com.tango.kyc.tango_kyc_verification://login-callback` |
+| Deep link scheme + host | `com.tango.kyc.verification://login-callback` |
 | Supabase provider | Google |
 
 These three values must agree everywhere. A mismatch is what most often makes
@@ -72,7 +72,7 @@ Dashboard → **Authentication → Providers → Google**: enable it and paste t
 Dashboard → **Authentication → URL Configuration → Redirect URLs**: add
 
 ```
-com.tango.kyc.tango_kyc_verification://login-callback
+com.tango.kyc.verification://login-callback
 ```
 
 This exact string is `AppConfig.oauthRedirectUrl` and the `intent-filter` in
