@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# Secrets and credentials. Only `.env.example` files are ever tracked.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Flutter's bundled environment file holds the Supabase URL and anon key at
+# build time. Keep the example, ignore the real ones.
+mobile/assets/env
+mobile/assets/env.*
+!mobile/assets/env.example
+
+# Google / Firebase Android credentials
+**/google-services.json
+**/GoogleService-Info.plist
+*.jks
+*.keystore
+key.properties
+**/key.properties
+
+# Signing and private keys
+*.pem
+*.p12
+*.pfx
+
+# ---------------------------------------------------------------------------
+# Flutter / Dart
+# ---------------------------------------------------------------------------
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/
+mobile/.pub-cache/
+mobile/.pub/
+mobile/android/.gradle/
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+mobile/android/local.properties
+mobile/android/key.properties
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/Flutter.podspec
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/linux/flutter/generated_*
+mobile/macos/Flutter/ephemeral/
+mobile/windows/flutter/ephemeral/
+*.g.dart
+*.freezed.dart
+
+# ---------------------------------------------------------------------------
+# Supabase CLI local state
+# ---------------------------------------------------------------------------
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/functions/.env
+supabase/functions/.env.*
+!supabase/functions/.env.example
+
+# ---------------------------------------------------------------------------
+# Editors and operating systems
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Logs, caches, scratch output
+# ---------------------------------------------------------------------------
+*.log
+logs/
+.agent_tmp/
+tmp/
+.tmp/
+coverage/
+*.out
