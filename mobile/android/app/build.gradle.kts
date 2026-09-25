@@ -1,8 +1,27 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing material. Either provide `android/key.properties`
+// (KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) or the matching
+// environment variables; both files are git-ignored. When neither is present the
+// release build falls back to the debug key so local builds keep working, but it
+// is not publishable to Play in that state.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+fun signingValue(propertyName: String, envName: String): String? =
+    (keystoreProperties.getProperty(propertyName) ?: System.getenv(envName))?.takeIf { it.isNotBlank() }
+
+val releaseStorePath = signingValue("KEYSTORE_PATH", "KEYSTORE_PATH")
+val hasReleaseSigning = releaseStorePath != null
 
 android {
     namespace = "com.tango.kyc.tango_kyc_verification"
@@ -15,10 +34,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // Package name published to Google Play and registered with Google
+        // OAuth. Changing it invalidates the OAuth configuration.
         applicationId = "com.tango.kyc.tango_kyc_verification"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
@@ -29,11 +47,29 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStorePath!!)
+                storePassword = signingValue("KEYSTORE_PASSWORD", "KEYSTORE_PASSWORD")
+                keyAlias = signingValue("KEY_ALIAS", "KEY_ALIAS")
+                keyPassword = signingValue("KEY_PASSWORD", "KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "WARNING: no release keystore configured (android/key.properties or " +
+                        "KEYSTORE_PATH). Falling back to the debug signing key; this build " +
+                        "cannot be published to Google Play.",
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

@@ -37,6 +37,7 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 mobile/.packages
 mobile/build/
+mobile/android/build/
 mobile/.pub-cache/
 mobile/.pub/
 mobile/android/.gradle/

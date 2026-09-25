@@ -158,12 +158,15 @@ already touched.
 ## Status and remaining external setup
 
 The application is functional end-to-end on the local stack. To run it against
-real users, three things need accounts that only you can create:
+real users, four things need accounts or material that only you can provide:
 
 1. A Supabase project (free tier) — for the database, auth and Edge Functions.
 2. A Resend account (free tier) with a verified domain — for real outbound mail
    and inbound replies.
 3. A Google Cloud OAuth client — for Google sign-in.
+4. An Android release keystore — for a Play-publishable build (see
+   [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md#release-signing)). Without it the
+   release build still compiles but is debug-signed and must not be shipped.
 
 Each is a step-by-step task in the corresponding doc above. Until those exist,
 email sending and Google sign-in are not claimed to work.

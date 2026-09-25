@@ -114,6 +114,40 @@ For Play, sign the AAB with your release keystore and register its SHA-1/SHA-256
 on the Google OAuth Android client (see the Google doc) — debug fingerprints will
 not match a Play-signed build.
 
+### Release signing
+
+`android/app/build.gradle.kts` reads the release signing material from
+`android/key.properties` (git-ignored) or from environment variables, whichever
+is present:
+
+```properties
+# mobile/android/key.properties
+KEYSTORE_PATH=/absolute/path/to/upload-keystore.jks
+KEYSTORE_PASSWORD=...
+KEY_ALIAS=...
+KEY_PASSWORD=...
+```
+
+Create the keystore once and keep it plus the passwords somewhere safe — losing
+it means you can no longer ship updates to an existing Play listing:
+
+```bash
+keytool -genkeypair -v -keystore upload-keystore.jks -alias upload \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+When no keystore is configured the release build still succeeds so local
+`--release` runs keep working, but Gradle prints a warning and the APK is signed
+with the Android debug key. **A debug-signed release build must never be
+uploaded to Play.** Check the signer before shipping:
+
+```bash
+"$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs \
+  build/app/outputs/flutter-apk/app-release.apk | grep 'certificate DN'
+```
+
+`CN=Android Debug` means no keystore was picked up; your own `CN` means it was.
+
 ## 8. Verify the deployment
 
 ```bash
