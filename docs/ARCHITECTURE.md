@@ -76,7 +76,7 @@ email_events     id, ticket_id, provider, external_id, event_type, payload_hash,
                  created_at
 unmatched_replies id, provider, external_id, from_email, to_email, subject,
                  body_excerpt, reason, resolved_ticket_id, resolved_at, created_at
-app_settings     key, value (jsonb)   -- admin email, rate limits; server-tunable
+app_settings     key, value (jsonb)   -- rate limits; server-tunable
 ```
 
 `sender_type` is `user`, `admin` or `system`. A `system` row records the original

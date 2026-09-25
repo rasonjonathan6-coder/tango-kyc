@@ -47,13 +47,17 @@ The migrations create:
 Behaviour that should change without a redeploy lives in `app_settings`:
 
 ```sql
-select public.setting_text('admin_email');
 select public.setting_int('rate_limit', 'max_requests_per_day', 5);
 
 update public.app_settings
    set value = jsonb_set(value, '{max_requests_per_day}', '10')
  where key = 'rate_limit';
 ```
+
+The anti-spam limits are the live values here. Note that the `admin_email` row is
+**not** read by the functions: the support address comes from the `ADMIN_EMAIL`
+environment variable (an Edge Function secret). Change it with
+`supabase secrets set ADMIN_EMAIL=...`, not with SQL.
 
 Anti-spam has two independent limits, both stored in the `rate_limit` row of
 `public.app_settings` (not in environment variables): a cooldown between distinct

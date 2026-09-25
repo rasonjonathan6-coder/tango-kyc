@@ -28,10 +28,11 @@ unreadable rather than open.
 | `unmatched_replies` | No access | Read and resolve |
 | `app_settings` | No access | Read |
 
-`app_settings` holds the admin address and the rate-limit values, so it is
-admin-only for reads as well. The client never reads it: the app is given the
-limits it needs through the functions' error responses, and the settings are
-consumed server-side.
+`app_settings` holds the rate-limit values, so it is admin-only for reads as
+well. The client never reads it: the app is given the limits it needs through the
+functions' error responses, and the settings are consumed server-side. The
+support address is not stored here — it comes from the `ADMIN_EMAIL` Edge
+Function secret.
 
 The properties the test suite asserts directly:
 

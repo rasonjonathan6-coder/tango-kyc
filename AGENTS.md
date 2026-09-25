@@ -70,3 +70,27 @@ bash tests/scripts/e2e_local.sh
   gives a false negative.
 - Do not fabricate results. If an external service is unconfigured, fail loudly
   and say so rather than reporting success.
+
+## Production state (verified)
+
+- **Cloud project**: `hbvjpawnszzcbcjmbkuf`. Both migrations applied, all six
+  tables present with RLS enabled, the three Edge Functions deployed.
+- **`create-kyc-request` returns HTTP 201** on success — not 200.
+- **Duplicate submissions are deduplicated before the rate limit is applied**, so
+  an exact re-submission returns the existing ticket (201) and never 429. Any
+  test that expects 429 for a duplicate is wrong.
+- **The `ADMIN_EMAIL` value lives in an Edge Function secret, not in
+  `app_settings`.** The `admin_email` row is seeded but read by no code; editing
+  it by SQL changes nothing.
+- **Rejected requests are validated before the rate-limit check**, so they consume
+  no rate budget.
+- **`^https?://` accepts plain `http://`.** This matches the spec ("a valid URL");
+  https is not forced.
+- **A project access token unlocks the Management API SQL endpoint**
+  (`POST /v1/projects/<ref>/database/query`), which is how RLS and schema were
+  verified when the direct DB host was unreachable. The direct host
+  `db.<ref>.supabase.co` does not resolve in this sandbox, but the poolers
+  (`aws-0-<region>.pooler.supabase.com`) are reachable on 5432 and 6543.
+- **`supabase status -o env` emits `ANON_KEY` / `SERVICE_ROLE_KEY`**, but
+  `tests/scripts/e2e_local.sh` expects `SUPABASE_ANON_KEY` /
+  `SUPABASE_SERVICE_ROLE_KEY`. Map them explicitly when exporting.
