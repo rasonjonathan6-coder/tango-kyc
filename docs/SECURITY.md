@@ -75,7 +75,9 @@ gated in SQL.
 | --- | --- | --- | --- |
 | `SUPABASE_ANON_KEY` | Yes (public by design) | Yes | Example only |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Never** | Yes | Example only |
-| `EMAIL_API_KEY` | **Never** | Yes | Example only |
+| `MAILJET_API_KEY` | **Never** | Yes | Example only |
+| `MAILJET_SECRET_KEY` | **Never** | Yes | Example only |
+| `EMAIL_API_KEY` | **Never** | Yes (inbound only) | Example only |
 | `RESEND_WEBHOOK_SECRET` | **Never** | Yes | Example only |
 | `ADMIN_EMAIL` | No | Yes | Example (it is a published address) |
 
@@ -177,8 +179,9 @@ surfacing whatever the server said.
 
 ## Transport
 
-All traffic is HTTPS: Supabase and Resend are TLS-only, and the Android manifest
-requires no cleartext exception. There is no plaintext fallback to disable.
+All traffic is HTTPS: Supabase, Mailjet and Resend are TLS-only, and the Android
+manifest requires no cleartext exception. There is no plaintext fallback to
+disable.
 
 ## Notifications
 

@@ -9,12 +9,18 @@ Flutter (Android)  ──HTTPS──▶  Supabase
                                  ├── Auth            email/password, Google OAuth
                                  ├── Postgres + RLS  all reads and writes
                                  └── Edge Functions   privileged operations
+                                          │  ▲
+                            outbound mail │  │ signed webhook
+                                          ▼  │
+                                 Mailjet ─┘  └─ Resend (inbound)
                                           ▲
-                                          │ signed webhook
-                                 Email provider (Resend)
-                                          │
                                  Admin replies from Gmail
 ```
+
+Mail is split by direction: Mailjet sends the admin notification and the user
+notice, while Resend receives the support reply and hands it to the
+`email-webhook` function. The `Reply-To` on outbound mail points at the Resend
+inbound address, so the reply path is unaffected by which provider sent it.
 
 The Flutter app holds the publishable anon key only. That key is not a secret in
 the usual sense: every row it can reach is filtered by Row Level Security. Any
@@ -193,7 +199,8 @@ initial status is always `pending` and is set by the server.
 ## Free-tier fit
 
 - Supabase free tier: 500 MB database, 5 GB egress, Edge Functions included.
-- Resend free tier: 3,000 emails/month, 100/day, one custom domain.
+- Mailjet free tier: 200 emails/day (outbound), 1,500 contacts.
+- Resend free tier: 3,000 emails/month, inbound receiving included.
 - No VPS, no always-on container, no paid compute.
 
 Embedded images in an admin reply are not inlined into the app; only the cleaned

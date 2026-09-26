@@ -11,7 +11,7 @@ import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbErro
 import { requireUser, serviceClient } from "../_shared/clients.ts";
 import {
   adminEmail,
-  emailApiKeyConfigured,
+  emailSendingConfigured,
   escapeHtml,
   plain,
   replyToAddress,
@@ -121,9 +121,9 @@ type Ticket = {
  * the caller can be explicit about it rather than pretending it was delivered.
  */
 async function notifyAdmin(ticket: Ticket): Promise<boolean> {
-  if (!emailApiKeyConfigured()) {
+  if (!emailSendingConfigured()) {
     console.warn(
-      "EMAIL_API_KEY is not configured: ticket %s was created but the admin email was NOT sent.",
+      "MAILJET_API_KEY/MAILJET_SECRET_KEY/MAILJET_FROM_EMAIL are not fully configured: ticket %s was created but the admin email was NOT sent.",
       ticket.ticket_code,
     );
     return false;
@@ -181,7 +181,12 @@ ${ticket.register_type === "email" ? "Register email" : "Register number"}: ${es
   });
 
   // Store the outbound provider id so a threaded reply can be matched even when
-  // the admin removes the ticket code from the subject.
+  // the admin removes the ticket code from the subject. A suppressed send
+  // carries no id, so the previously recorded one is left untouched.
+  if (result.suppressed || !result.id) {
+    return true;
+  }
+
   const admin = serviceClient();
   const { error } = await admin.rpc("record_outbound_email", {
     p_ticket_id: ticket.id,

@@ -1,28 +1,51 @@
-# Email setup (Resend)
+# Email setup (Mailjet outbound, Resend inbound)
 
-The backend sends two kinds of mail and receives one: an admin notification when
-a request is created, a short notice to the user when support replies, and the
-inbound replies themselves.
+Two providers, split by direction:
 
-## Free-tier limits (checked against Resend's published pricing)
-
-| Limit | Free tier | Consequence here |
+| Direction | Provider | Purpose |
 | --- | --- | --- |
-| Emails per month | 3,000 | Plenty: 2 emails per ticket plus one per reply |
-| Emails per day | 100 | The daily request cap (default 5/user) keeps this comfortable |
-| Verified domains | 1 | Use the same domain for `EMAIL_FROM` and `EMAIL_INBOUND_DOMAIN` |
-| Log retention | 30 days | Fine for debugging; nothing depends on it |
-| Inbound email | Included | Required for reply capture |
+| Outbound | **Mailjet** (Send API v3.1) | Admin notification on ticket creation, user notice when support replies |
+| Inbound | **Resend** (`email.received` webhook) | Receives the support reply and resolves it back to a ticket |
+
+Mailjet sends the mail, but the `Reply-To` still points at the Resend inbound
+address, so replies keep flowing through the existing webhook and the ticket
+association is unchanged.
+
+## Free-tier limits
+
+| Provider | Limit | Free tier | Consequence here |
+| --- | --- | --- | --- |
+| Mailjet | Emails per day | 200 | Plenty: 2 emails per ticket plus one per reply |
+| Mailjet | Contacts | 1,500 | Irrelevant: transactional sending does not need contact lists |
+| Resend | Emails per month | 3,000 | Inbound only now, so effectively unused |
+| Resend | Inbound email | Included | Required for reply capture |
+| Resend | Verified domains | 1 | Used for `EMAIL_INBOUND_DOMAIN` |
 
 Resend's inbound webhook delivers **metadata only** — the message body is fetched
 with a follow-up API call using `email_id`. The webhook handler does exactly
-that, so no configuration is needed for it beyond the API key.
+that, so no configuration is needed for it beyond `EMAIL_API_KEY`.
 
-Without a verified domain you can only send from `onboarding@resend.dev` and
-only to the Resend account owner's own address. That is enough to smoke-test, but
-not to serve real users. Verify a domain before going live.
+## 1. Create the Mailjet keys (outbound)
 
-## 1. Create the API key
+1. Sign up at <https://app.mailjet.com>.
+2. **Account → API Key Management** (<https://app.mailjet.com/account/apikeys>).
+   A *Send-only* key is enough; the Master key also works.
+3. Put the pair in your Edge Function secrets as `MAILJET_API_KEY` (username)
+   and `MAILJET_SECRET_KEY` (password).
+
+## 2. Validate the Mailjet sender (outbound)
+
+1. **Account → Sender domains & addresses**
+   (<https://app.mailjet.com/account/sender>).
+2. Validate the domain (add the SPF/DKIM records Mailjet shows) or the single
+   address.
+3. Set `MAILJET_FROM_EMAIL` to that validated sender, e.g.
+   `Tango KYC Verification <notifications@your-domain.com>`.
+
+Mailjet rejects any `From` that is not a validated sender, so there is no
+fallback: outbound sending stays disabled until this is set.
+
+## 3. Create the Resend API key (inbound)
 
 1. Sign up at <https://resend.com>.
 2. **API Keys → Create API Key**, permission *Sending access*.
@@ -31,21 +54,17 @@ not to serve real users. Verify a domain before going live.
 This key is a backend secret. It must never appear in the Flutter app or in a
 commit.
 
-## 2. Verify a sending domain
+## 4. Verify the Resend domain (inbound)
 
 1. **Domains → Add Domain**, then enter a domain you control.
 2. Add the DNS records Resend shows (SPF, DKIM, and DMARC if you use it).
 3. Wait for verification to go green.
 
-Set:
+On the free tier this single verified domain serves inbound receiving. It is no
+longer used for outbound sending, which Mailjet now handles, but `EMAIL_FROM` is
+kept for reference and for any Resend-side tooling.
 
-```
-EMAIL_FROM=Tango KYC Verification <notifications@your-domain.com>
-```
-
-On the free tier the one verified domain serves both sending and receiving.
-
-## 3. Enable inbound receiving
+## 5. Enable inbound receiving
 
 Resend's receiving feature routes mail sent to your domain back into the API and
 raises an `email.received` webhook.
@@ -68,7 +87,7 @@ raises an `email.received` webhook.
    Catch-all routing is what makes this work, so keep the domain's receiving
    configuration as catch-all rather than a fixed set of local parts.
 
-## 4. Register the webhook
+## 6. Register the webhook
 
 1. **Webhooks → Add Webhook**.
 2. Endpoint URL:
@@ -83,24 +102,27 @@ missing, malformed or wrong signature is rejected before any database work
 happens — including when the secret is unset, in which case the function refuses
 rather than trusting the caller.
 
-## 5. Set the Edge Function secrets
+## 7. Set the Edge Function secrets
 
 Dashboard → **Project Settings → Edge Functions → Secrets**, or via the CLI:
 
 ```bash
 supabase secrets set \
+  MAILJET_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  MAILJET_SECRET_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  MAILJET_FROM_EMAIL="Tango KYC Verification <notifications@your-domain.com>" \
   EMAIL_API_KEY=re_xxxxxxxx \
-  EMAIL_FROM="Tango KYC Verification <notifications@your-domain.com>" \
   EMAIL_INBOUND_DOMAIN=your-domain.com \
   EMAIL_INBOUND_MAILBOX=reply \
   RESEND_WEBHOOK_SECRET=whsec_xxxxxxxx \
   ADMIN_EMAIL=rasonjonathan6@gmail.com
 ```
 
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically for
-functions in the project.
+`EMAIL_FROM` is retained for the Resend side but is no longer used for outbound
+sending. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected
+automatically for functions in the project.
 
-## 6. What the admin receives
+## 8. What the admin receives
 
 Subject, exactly:
 
@@ -139,7 +161,7 @@ routing is automatic. `Register email:` and `Register number:` are mutually
 exclusive — exactly one line is emitted, matching the value the user actually
 provided.
 
-## 7. How a reply is matched
+## 9. How a reply is matched
 
 In confidence order, server-side:
 
@@ -155,7 +177,7 @@ Processing is idempotent. Providers retry, so each delivery is keyed on
 `(provider, external_id)`; a replay returns the original message id and is
 recorded as a duplicate rather than appending a second message.
 
-## 8. The user notification
+## 10. The user notification
 
 Sent only when the ticket's `register_type` is `email`:
 
@@ -171,15 +193,39 @@ No sensitive content, no verification link — just a pointer to the app, which
 requires authentication. A phone-only requester is never assigned an invented
 address; their reply appears in the dashboard only.
 
-## 9. Local development
+## 11. Local development
 
 The local Supabase stack runs Mailpit at <http://127.0.0.1:54324>. Every outbound
-email is captured there. This works with no Resend account, but it is delivery to
-a local inbox — not a claim that real mail was sent.
+email is captured there. This works with no Mailjet account, but it is delivery
+to a local inbox — not a claim that real mail was sent.
 
-When `EMAIL_API_KEY` is unset the backend logs an explicit warning and reports
-`admin_email_sent: false` (or skips the user notice). It never reports success
-for a message it did not send.
+When the `MAILJET_*` secrets are not all set the backend logs an explicit warning
+and reports `admin_email_sent: false` (or skips the user notice). It never
+reports success for a message it did not send.
+
+## 12. Outbound idempotency
+
+Resend accepted an `Idempotency-Key` header; Mailjet's Send API has no equivalent.
+The guarantee is kept in the database instead: a successful send is recorded in
+`email_events` under `(provider='mailjet', external_id=<key>,
+event_type='outbound.send')`, and a repeat call within 24 hours is skipped rather
+than sent again. Callers pass:
+
+| Caller | Key |
+| --- | --- |
+| `create-kyc-request` | `kyc-admin-<TICKET_CODE>` |
+| `email-webhook`, `admin-actions` | `kyc-user-reply-<TICKET_CODE>-<REGISTER_VALUE>` |
+
+The user-notice key is per ticket and recipient, not per message, so a burst of
+admin replies within 24 hours sends one notification rather than one per reply.
+This matches the behaviour the Resend `Idempotency-Key` produced.
+
+The key also travels as Mailjet's `CustomID`, but that is for correlation in the
+Mailjet dashboard only — it does not deduplicate anything.
+
+A suppressed send carries no provider message id, so callers leave the ticket's
+`last_outbound_message_id` untouched rather than overwriting it with an empty
+value, which would break thread-based reply matching.
 
 ## Troubleshooting
 
@@ -187,6 +233,10 @@ for a message it did not send.
 | --- | --- |
 | `Webhook secret is not configured` | `RESEND_WEBHOOK_SECRET` missing; the function refuses to trust the request |
 | `Webhook signature did not match` | Wrong secret, or a proxy altered the body before it reached the function |
-| 403 from Resend when sending | `EMAIL_FROM` domain not verified, or `onboarding@resend.dev` used to mail a non-owner address |
+| 401 from Mailjet when sending | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` wrong or swapped |
+| 403 from Mailjet when sending | `MAILJET_FROM_EMAIL` is not a validated sender (see step 2) |
+| `Email provider rejected the message` in logs | Mailjet refused the message; the log line carries its `ErrorCode` and `ErrorMessage` |
+| `Email provider unreachable` | Network failure or the 10 s Mailjet timeout elapsed |
 | Replies never arrive | Receiving not enabled, MX records missing, or the webhook not subscribed to `email.received` |
-| Reply stored but no user email | The request was phone-only, or `EMAIL_API_KEY` is unset — check the logs |
+| Reply stored but no user email | The request was phone-only, or the `MAILJET_*` secrets are incomplete — check the logs |
+| Same notification twice | Expected only if the retry happened more than 24 h after the first send |

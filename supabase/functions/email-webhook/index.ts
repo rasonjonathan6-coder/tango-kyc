@@ -14,7 +14,7 @@ import { AppError, errorResponse, handlePreflight, jsonResponse } from "../_shar
 import { env, serviceClient } from "../_shared/clients.ts";
 import { verifySvixSignature } from "../_shared/svix.ts";
 import { extractCleanReplyBody, sanitizeForStorage } from "../_shared/email-body.ts";
-import { fetchReceivedEmail, emailApiKeyConfigured, sendEmail } from "../_shared/email-provider.ts";
+import { fetchReceivedEmail, emailSendingConfigured, sendEmail } from "../_shared/email-provider.ts";
 
 const PROVIDER = "resend";
 
@@ -220,9 +220,9 @@ async function notifyUser(ticketId: string): Promise<boolean> {
     return false;
   }
 
-  if (!emailApiKeyConfigured()) {
+  if (!emailSendingConfigured()) {
     console.warn(
-      "EMAIL_API_KEY is not configured: reply for %s was stored but the user was NOT emailed.",
+      "Mailjet is not fully configured: reply for %s was stored but the user was NOT emailed.",
       ticket.ticket_code,
     );
     return false;

@@ -7,7 +7,7 @@
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
 import { requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
-import { emailApiKeyConfigured, sendEmail } from "../_shared/email-provider.ts";
+import { emailSendingConfigured, sendEmail } from "../_shared/email-provider.ts";
 
 const STATUSES = ["pending", "in_review", "replied", "closed"] as const;
 type Status = (typeof STATUSES)[number];
@@ -176,8 +176,8 @@ async function notifyOwner(ticketId: string): Promise<boolean> {
     return false;
   }
   if (ticket.register_type !== "email") return false;
-  if (!emailApiKeyConfigured()) {
-    console.warn("EMAIL_API_KEY not configured: owner of %s was not emailed.", ticket.ticket_code);
+  if (!emailSendingConfigured()) {
+    console.warn("Mailjet is not fully configured: owner of %s was not emailed.", ticket.ticket_code);
     return false;
   }
 

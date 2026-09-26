@@ -20,13 +20,13 @@ external account is marked *needs configuration* and is never faked.
 | Server-side validation (link scheme, email/phone detection and normalisation) | Verified |
 | Row Level Security: users see only their own tickets and messages | Verified |
 | Admin gate by role, enforced in RLS and in SQL | Verified |
-| Admin email on request creation (exact required subject/body) | Verified against local Mailpit; needs a Resend key to send real mail |
+| Admin email on request creation (exact required subject/body) | Verified against local Mailpit; needs Mailjet keys to send real mail |
 | Inbound reply webhook, Svix signature verification | Verified (22 unit tests) |
 | Reply → ticket matching (ticket code → reply token → thread id) | Verified |
 | Idempotent webhook handling (no duplicate messages) | Verified |
 | Quarantine for unmatched replies, admin-only | Verified |
 | Clean reply body extraction (HTML → text, headers/quotes stripped) | Verified |
-| User notification email on a new reply | Implemented; needs a Resend key and a verified domain |
+| User notification email on a new reply | Implemented; needs Mailjet keys and a validated sender |
 | Flutter UI: splash, login, register, forgot/reset, home, create request, my requests, details, profile, settings, admin dashboard | Verified (`flutter analyze` clean, 95 tests pass) |
 | Manual MVola payment: start, submit reference, admin approve/refuse, user sees the outcome | Verified end-to-end against the deployed project (50 assertions) and in the DB suite |
 | MVola price and USSD code taken from server config, never from the client | Verified (DB suite + live E2E: the client only ever sends a ticket id) |
@@ -169,20 +169,20 @@ already touched.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, data flow, decisions
 - [`docs/SUPABASE_SETUP.md`](docs/SUPABASE_SETUP.md) — project, schema, RLS, deployment
 - [`docs/GOOGLE_AUTH_SETUP.md`](docs/GOOGLE_AUTH_SETUP.md) — OAuth setup, package name, SHA-1/256
-- [`docs/EMAIL_SETUP.md`](docs/EMAIL_SETUP.md) — Resend sending, inbound, webhook, free-tier limits
+- [`docs/EMAIL_SETUP.md`](docs/EMAIL_SETUP.md) — Mailjet outbound, Resend inbound, webhook, free-tier limits
 - [`docs/SECURITY.md`](docs/SECURITY.md) — threat model, RLS, secrets, XSS/SQLi/injection
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — free-tier deployment path
 
 ## Status and remaining external setup
 
 The application is functional end-to-end on the local stack. To run it against
-real users, four things need accounts or material that only you can provide:
+real users, these need accounts or material that only you can provide:
 
 1. A Supabase project (free tier) — for the database, auth and Edge Functions.
-2. A Resend account (free tier) with a verified domain — for real outbound mail
-   and inbound replies.
-3. A Google Cloud OAuth client — for Google sign-in.
-4. An Android release keystore — for a Play-publishable build (see
+2. A Mailjet account (free tier) with a validated sender — for real outbound mail.
+3. A Resend account (free tier) with a receiving domain — for inbound replies.
+4. A Google Cloud OAuth client — for Google sign-in.
+5. An Android release keystore — for a Play-publishable build (see
    [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md#release-signing)). Without it the
    release build still compiles but is debug-signed and must not be shipped.
 
