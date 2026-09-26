@@ -44,22 +44,43 @@ Never add them to the app.
 supabase functions deploy create-kyc-request
 supabase functions deploy admin-actions
 supabase functions deploy email-webhook
+supabase functions deploy mvola-payments
 ```
 
-All three are declared with `verify_jwt = false` in `supabase/config.toml`, and
-each one authenticates its caller itself:
+Then set the `verify_jwt` flag of each to match `supabase/config.toml`.
+`create-kyc-request`, `mvola-payments` and `email-webhook` are declared with
+`verify_jwt = false`, and `admin-actions` with `verify_jwt = true`:
 
-- `create-kyc-request` and `admin-actions` call `requireUser()` / `requireAdmin()`,
-  which validate the caller's access token via `auth.getUser()` and, for admin,
-  read the role from the server-owned `profiles` row. The platform check would not
-  add anything to that, and turning it off keeps each function's authorisation in
-  one place.
+- `create-kyc-request`, `mvola-payments` and `admin-actions` call
+  `requireUser()` / `requireAdmin()`, which validate the caller's access token
+  via `auth.getUser()` and, for admin, read the role from the server-owned
+  `profiles` row.
 - `email-webhook` verifies a Svix HMAC signature over the raw body instead, since
   the provider cannot present a Supabase JWT. It rejects unsigned requests, and it
   fails closed when the secret is unset.
 
 Setting `verify_jwt = false` therefore does not mean unauthenticated. Every
 function rejects a caller it cannot verify; this is covered by the test suites.
+`admin-actions` keeps the platform gate on in addition to its in-code role check,
+because it is the only function that exposes admin write actions.
+
+There is no MVola secret to configure. The recipient number, the amount, the
+currency, the USSD template and the payer instructions all live in the `mvola`
+row of `app_settings`, so they can be changed with SQL without a redeploy or an
+app release:
+
+```sql
+update public.app_settings
+set value = jsonb_set(
+      jsonb_set(value, '{recipient_number}', '"0346715622"'),
+      '{amount}', '20000'
+    )
+where key = 'mvola';
+```
+
+Set `"enabled": false` in the same row to withdraw the payment option; the app
+then reports that Mobile Money payment is unavailable instead of showing a
+form.
 
 ## 4. Configure auth
 

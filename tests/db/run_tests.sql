@@ -568,6 +568,441 @@ begin
     'rate limit value can be tuned without code changes');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- 14. MVola configuration and USSD generation
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_cfg jsonb;
+begin
+  perform test_harness.act_as(v_user_a);
+  v_cfg := public.mvola_config();
+
+  perform test_harness.ok((v_cfg ->> 'recipient_number') = '0346715622',
+    'mvola recipient number comes from server config');
+  perform test_harness.ok((v_cfg ->> 'amount')::numeric = 20000,
+    'mvola amount comes from server config');
+  perform test_harness.ok((v_cfg ->> 'currency') = 'MGA',
+    'mvola currency comes from server config');
+  perform test_harness.ok((v_cfg ->> 'ussd_code') = '#111*1*2*0346715622*20000*2#',
+    'ussd code is generated from the configurable template');
+
+  -- The USSD string is derived, not stored: changing the config changes it.
+  -- Configuration edits are a service-role operation; a normal user has no
+  -- update grant on app_settings at all.
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.raises(
+    'update public.app_settings set value = ''{}''::jsonb where key = ''mvola''',
+    'permission denied', 'a normal user cannot edit the mvola configuration');
+
+  perform test_harness.act_as_service();
+  update public.app_settings
+     set value = jsonb_set(value, '{recipient_number}', '"0999999999"')
+   where key = 'mvola';
+  perform test_harness.act_as(v_user_a);
+  v_cfg := public.mvola_config();
+  perform test_harness.ok((v_cfg ->> 'ussd_code') = '#111*1*2*0999999999*20000*2#',
+    'changing the recipient number changes the generated ussd code');
+
+  perform test_harness.act_as_service();
+  update public.app_settings
+     set value = jsonb_set(value, '{amount}', '5000')
+   where key = 'mvola';
+  perform test_harness.act_as(v_user_a);
+  v_cfg := public.mvola_config();
+  perform test_harness.ok((v_cfg ->> 'ussd_code') = '#111*1*2*0999999999*5000*2#',
+    'changing the amount changes the generated ussd code');
+
+  perform test_harness.act_as_service();
+  update public.app_settings
+     set value = jsonb_set(value, '{ussd_template}', '"*111*{recipient}*{amount}#"')
+   where key = 'mvola';
+  perform test_harness.act_as(v_user_a);
+  v_cfg := public.mvola_config();
+  perform test_harness.ok((v_cfg ->> 'ussd_code') = '*111*0999999999*5000#',
+    'changing the template changes the generated ussd code');
+
+  -- Restore the shipped defaults so later sections are deterministic.
+  perform test_harness.act_as_service();
+  update public.app_settings
+     set value = jsonb_build_object(
+       'enabled', true, 'recipient_number', '0346715622', 'amount', 20000,
+       'currency', 'MGA', 'ussd_template', '#111*1*2*{recipient}*{amount}*2#',
+       'instructions', 'Open MVola, choose "Pay", then enter the number and the amount shown above.')
+   where key = 'mvola';
+
+  perform test_harness.ok(public.mvola_amount_text(20000) = '20000',
+    'integer amount renders without decimals');
+  perform test_harness.ok(public.mvola_amount_text(1500.5) = '1500.5',
+    'fractional amount renders without trailing zeros');
+
+  -- Disabling the feature server side stops both config and payment start.
+  update public.app_settings set value = jsonb_set(value, '{enabled}', 'false')
+   where key = 'mvola';
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.raises(
+    'select public.mvola_config()', 'MVOLA_DISABLED', 'disabled mvola refuses to serve config');
+  perform test_harness.act_as_service();
+  update public.app_settings set value = jsonb_set(value, '{enabled}', 'true')
+   where key = 'mvola';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 15. MVola payment creation, ownership and the server-decided amount
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_user_b uuid := '22222222-2222-2222-2222-222222222222';
+  v_ticket_a public.kyc_requests;
+  v_ticket_b public.kyc_requests;
+  v_pay public.mvola_payments;
+  v_again public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket_a := test_harness.new_ticket(v_user_a, 'https://tango.me/a', 'a@example.com', 'email');
+  v_ticket_b := test_harness.new_ticket(v_user_b, 'https://tango.me/b', 'b@example.com', 'email');
+
+  -- Unauthenticated callers cannot start a payment.
+  perform test_harness.act_as_service();
+  perform set_config('request.jwt.claims', '{}', true);
+  perform test_harness.raises(
+    format('select public.mvola_start_payment(%L::uuid)', v_ticket_a.id),
+    'AUTH_REQUIRED', 'unauthenticated caller cannot start a payment');
+
+  perform test_harness.act_as(v_user_a);
+  v_pay := public.mvola_start_payment(v_ticket_a.id);
+
+  perform test_harness.ok(v_pay.status = 'pending', 'a new payment starts as pending');
+  perform test_harness.ok(v_pay.submitted_at is null, 'a new payment is not yet submitted');
+  perform test_harness.ok(v_pay.user_id = v_user_a, 'the payment belongs to the caller');
+  perform test_harness.ok(v_pay.ticket_id = v_ticket_a.id, 'the payment is linked to its ticket');
+  perform test_harness.ok(v_pay.amount = 20000, 'the amount is taken from server config');
+  perform test_harness.ok(v_pay.recipient_number = '0346715622',
+    'the recipient number is taken from server config');
+  perform test_harness.ok(v_pay.ussd_code = '#111*1*2*0346715622*20000*2#',
+    'the ussd code is stored with the payment');
+
+  -- Idempotence: a double tap returns the same live payment, never a second one.
+  v_again := public.mvola_start_payment(v_ticket_a.id);
+  perform test_harness.ok(v_again.id = v_pay.id,
+    'a second start returns the existing live payment');
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where ticket_id = v_ticket_a.id) = 1,
+    'a double start creates exactly one payment');
+
+  -- A payment cannot be opened for somebody else's ticket.
+  perform test_harness.act_as(v_user_b);
+  perform test_harness.raises(
+    format('select public.mvola_start_payment(%L::uuid)', v_ticket_a.id),
+    'FORBIDDEN', 'a user cannot pay for another user''s ticket');
+
+  -- An unknown ticket is reported as not found, not silently created.
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.raises(
+    'select public.mvola_start_payment(gen_random_uuid())',
+    'TICKET_NOT_FOUND', 'paying for an unknown ticket is refused');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 16. Double-payment protection at the storage layer
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_ticket public.kyc_requests;
+  v_pay public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket := test_harness.new_ticket(v_user_a, 'https://tango.me/dup', 'dup@example.com', 'email');
+
+  perform test_harness.act_as(v_user_a);
+  v_pay := public.mvola_start_payment(v_ticket.id);
+
+  -- Even a direct insert that bypasses the function cannot create a second live
+  -- payment: the partial unique index is the last line of defence.
+  perform test_harness.act_as_service();
+  perform test_harness.raises(
+    format(
+      'insert into public.mvola_payments (user_id, ticket_id, amount, currency, recipient_number, ussd_code) '
+      'values (%L::uuid, %L::uuid, 20000, ''MGA'', ''0346715622'', ''#111#'')',
+      v_user_a, v_ticket.id),
+    'duplicate key value', 'the unique index blocks a second live payment for one ticket');
+
+  -- Approving keeps the ticket occupied: the payment cannot be recreated.
+  perform test_harness.act_as(v_user_a);
+  perform public.mvola_submit_payment(v_pay.id, 'REF-APPROVED-1', null);
+  perform test_harness.act_as(
+    '33333333-3333-3333-3333-333333333333');
+  perform public.admin_mvola_set_decision(v_pay.id, 'approved', null);
+
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.ok(
+    (public.mvola_start_payment(v_ticket.id)).id = v_pay.id,
+    'an approved payment is returned rather than recreated');
+
+  -- The occupied ticket still holds exactly one row: approval does not allow a
+  -- second payment to slip in.
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where ticket_id = v_ticket.id) = 1,
+    'an approved ticket keeps exactly one payment row');
+  perform test_harness.ok(
+    (select status from public.mvola_payments where ticket_id = v_ticket.id) = 'approved',
+    'the live payment stays the approved one');
+end $$;
+
+do $$
+declare
+  v_user_b uuid := '22222222-2222-2222-2222-222222222222';
+  v_ticket public.kyc_requests;
+  v_first public.mvola_payments;
+  v_second public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket := test_harness.new_ticket(v_user_b, 'https://tango.me/rej', 'rej@example.com', 'email');
+
+  perform test_harness.act_as(v_user_b);
+  v_first := public.mvola_start_payment(v_ticket.id);
+  perform public.mvola_submit_payment(v_first.id, 'REF-REJECT-1', null);
+
+  perform test_harness.act_as('33333333-3333-3333-3333-333333333333');
+  perform public.admin_mvola_set_decision(v_first.id, 'rejected', 'Reference MVola incorrecte.');
+
+  -- After a rejection a fresh payment may be opened, and the old row is kept.
+  perform test_harness.act_as(v_user_b);
+  v_second := public.mvola_start_payment(v_ticket.id);
+  perform test_harness.ok(v_second.id <> v_first.id,
+    'a rejected payment allows a corrected resubmission');
+  perform test_harness.ok(v_second.status = 'pending', 'the resubmission starts as pending');
+
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where ticket_id = v_ticket.id) = 2,
+    'the rejected payment is kept for the history');
+  perform test_harness.ok(
+    (select rejection_reason from public.mvola_payments where id = v_first.id) =
+      'Reference MVola incorrecte.',
+    'the rejection reason is preserved');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 17. Submission: owner-only, validated, and never a status change
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_user_b uuid := '22222222-2222-2222-2222-222222222222';
+  v_ticket public.kyc_requests;
+  v_pay public.mvola_payments;
+  v_submitted public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket := test_harness.new_ticket(v_user_a, 'https://tango.me/sub', 'sub@example.com', 'email');
+
+  perform test_harness.act_as(v_user_a);
+  v_pay := public.mvola_start_payment(v_ticket.id);
+
+  -- A missing reference is refused.
+  perform test_harness.raises(
+    format('select public.mvola_submit_payment(%L::uuid, %L, null)', v_pay.id, '   '),
+    'MVOLA_REFERENCE_REQUIRED', 'an empty transaction reference is refused');
+
+  -- A reference with markup or control characters is refused, so nothing that
+  -- could be interpreted as content ever reaches storage.
+  perform test_harness.raises(
+    format('select public.mvola_submit_payment(%L::uuid, %L, null)', v_pay.id, '<script>x</script>'),
+    'MVOLA_REFERENCE_INVALID', 'a reference containing markup is refused');
+
+  -- Another user cannot submit a payment that is not theirs.
+  perform test_harness.act_as(v_user_b);
+  perform test_harness.raises(
+    format('select public.mvola_submit_payment(%L::uuid, %L, null)', v_pay.id, 'REF-STOLEN'),
+    'FORBIDDEN', 'a user cannot submit another user''s payment');
+
+  -- The owner submits successfully and the status stays pending: the server
+  -- never treats "I have paid" as proof of payment.
+  perform test_harness.act_as(v_user_a);
+  v_submitted := public.mvola_submit_payment(v_pay.id, '  123456789  ', '+261 34 12 345 67');
+  perform test_harness.ok(v_submitted.status = 'pending',
+    'submitting does not approve the payment');
+  perform test_harness.ok(v_submitted.submitted_at is not null,
+    'submitting records the submission time');
+  perform test_harness.ok(v_submitted.transaction_reference = '123456789',
+    'the reference is trimmed before storage');
+  perform test_harness.ok(v_submitted.payer_number = '+261341234567',
+    'the payer number is normalised before storage');
+
+  -- A pending payment may be corrected (a mistyped reference is a real case).
+  -- This updates the same row, so it can never become a second payment.
+  v_submitted := public.mvola_submit_payment(v_pay.id, 'REF-CORRECTED', null);
+  perform test_harness.ok(v_submitted.id = v_pay.id,
+    'correcting a pending payment reuses the same row');
+  perform test_harness.ok(v_submitted.transaction_reference = 'REF-CORRECTED',
+    'the corrected reference is stored');
+  perform test_harness.ok(v_submitted.status = 'pending',
+    'correcting does not change the status');
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where ticket_id = v_ticket.id) = 1,
+    'correcting a reference never creates a second payment');
+end $$;
+
+-- A decided payment can no longer be submitted or corrected.
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_ticket public.kyc_requests;
+  v_pay public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket := test_harness.new_ticket(v_user_a, 'https://tango.me/sub2', 'sub2@example.com', 'email');
+
+  perform test_harness.act_as(v_user_a);
+  v_pay := public.mvola_start_payment(v_ticket.id);
+  perform public.mvola_submit_payment(v_pay.id, 'REF-DECIDED-1', null);
+
+  perform test_harness.act_as('33333333-3333-3333-3333-333333333333');
+  perform public.admin_mvola_set_decision(v_pay.id, 'approved', null);
+
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.raises(
+    format('select public.mvola_submit_payment(%L::uuid, %L, null)', v_pay.id, 'REF-TOO-LATE'),
+    'PAYMENT_ALREADY_REVIEWED', 'an approved payment can no longer be submitted');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 18. Admin decisions, authorisation and audit trail
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_admin uuid := '33333333-3333-3333-3333-333333333333';
+  v_ticket public.kyc_requests;
+  v_pay public.mvola_payments;
+  v_row public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket := test_harness.new_ticket(v_user_a, 'https://tango.me/dec', 'dec@example.com', 'email');
+
+  perform test_harness.act_as(v_user_a);
+  v_pay := public.mvola_start_payment(v_ticket.id);
+  perform public.mvola_submit_payment(v_pay.id, 'REF-DECIDE-1', null);
+
+  -- A normal user cannot decide their own payment.
+  perform test_harness.raises(
+    format('select public.admin_mvola_set_decision(%L::uuid, ''approved'', null)', v_pay.id),
+    'FORBIDDEN', 'a user cannot approve their own payment');
+
+  -- An unauthenticated caller cannot decide either.
+  perform test_harness.act_as_service();
+  perform set_config('request.jwt.claims', '{}', true);
+  perform test_harness.raises(
+    format('select public.admin_mvola_set_decision(%L::uuid, ''approved'', null)', v_pay.id),
+    'FORBIDDEN', 'an unauthenticated caller cannot decide a payment');
+
+  -- Rejecting without a reason is refused: the user must learn what to fix.
+  perform test_harness.act_as(v_admin);
+  perform test_harness.raises(
+    format('select public.admin_mvola_set_decision(%L::uuid, ''rejected'', null)', v_pay.id),
+    'MVOLA_REASON_REQUIRED', 'a rejection without a reason is refused');
+
+  -- An invalid decision value is refused.
+  perform test_harness.raises(
+    format('select public.admin_mvola_set_decision(%L::uuid, ''pending'', null)', v_pay.id),
+    'MVOLA_DECISION_INVALID', 'an invalid decision value is refused');
+
+  -- The admin approves and the trail records who and when.
+  v_row := public.admin_mvola_set_decision(v_pay.id, 'approved', null);
+  perform test_harness.ok(v_row.status = 'approved', 'the admin can approve a payment');
+  perform test_harness.ok(v_row.reviewed_at is not null, 'approval records the review time');
+  perform test_harness.ok(v_row.reviewed_by = v_admin, 'approval records the reviewing admin');
+  perform test_harness.ok(v_row.rejection_reason is null, 'approval clears any rejection reason');
+
+  -- A decided payment cannot be decided again.
+  perform test_harness.raises(
+    format('select public.admin_mvola_set_decision(%L::uuid, ''rejected'', ''too late'')', v_pay.id),
+    'PAYMENT_ALREADY_REVIEWED', 'an already decided payment cannot be decided again');
+
+  -- The admin listing exposes the joined ticket, owner and reviewer.
+  perform test_harness.ok(
+    (select count(*) from public.admin_mvola_list() l where l.id = v_pay.id) = 1,
+    'the admin listing returns the payment');
+  perform test_harness.ok(
+    (select l.ticket_code from public.admin_mvola_list() l where l.id = v_pay.id) = v_ticket.ticket_code,
+    'the admin listing joins the ticket code');
+  perform test_harness.ok(
+    (select l.reviewer_email from public.admin_mvola_list() l where l.id = v_pay.id) =
+      'rasonjonathan6@gmail.com',
+    'the admin listing joins the reviewing admin');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 19. MVola RLS: isolation and immutability from the client
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_user_b uuid := '22222222-2222-2222-2222-222222222222';
+  v_ticket_a public.kyc_requests;
+  v_ticket_b public.kyc_requests;
+  v_pay_a public.mvola_payments;
+  v_pay_b public.mvola_payments;
+begin
+  perform test_harness.act_as_service();
+  v_ticket_a := test_harness.new_ticket(v_user_a, 'https://tango.me/rls-a', 'rls.a@example.com', 'email');
+  v_ticket_b := test_harness.new_ticket(v_user_b, 'https://tango.me/rls-b', 'rls.b@example.com', 'email');
+
+  perform test_harness.act_as(v_user_a);
+  v_pay_a := public.mvola_start_payment(v_ticket_a.id);
+  perform test_harness.act_as(v_user_b);
+  v_pay_b := public.mvola_start_payment(v_ticket_b.id);
+
+  -- Each user sees only their own payment. Scoped to this section's rows so the
+  -- assertion does not depend on what earlier sections created.
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where id in (v_pay_a.id, v_pay_b.id)) = 1,
+    'a user sees exactly one of the two payments (their own)');
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where id = v_pay_a.id) = 1,
+    'a user can read their own payment');
+  perform test_harness.ok(
+    (select count(*) from public.mvola_payments where id = v_pay_b.id) = 0,
+    'a user cannot read another user''s payment');
+
+  -- RLS is enabled on the table.
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select relrowsecurity from pg_class
+      where relname = 'mvola_payments' and relnamespace = 'public'::regnamespace),
+    'RLS is enabled on mvola_payments');
+
+  -- The client has no write grant: status cannot be forged.
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.raises(
+    format('update public.mvola_payments set status = ''approved'' where id = %L::uuid', v_pay_a.id),
+    'permission denied', 'a user cannot update a payment status directly');
+  perform test_harness.raises(
+    format('update public.mvola_payments set amount = 1 where id = %L::uuid', v_pay_a.id),
+    'permission denied', 'a user cannot change the amount directly');
+  perform test_harness.raises(
+    format('delete from public.mvola_payments where id = %L::uuid', v_pay_a.id),
+    'permission denied', 'a user cannot delete a payment');
+  perform test_harness.raises(
+    format(
+      'insert into public.mvola_payments (user_id, ticket_id, amount, currency, recipient_number, ussd_code) '
+      'values (%L::uuid, %L::uuid, 1, ''MGA'', ''0346715622'', ''#111#'')',
+      v_user_a, v_ticket_a.id),
+    'permission denied', 'a user cannot insert a payment directly');
+
+  -- Admin-only functions are refused to a normal user.
+  perform test_harness.raises('select * from public.admin_mvola_list()',
+    'FORBIDDEN', 'a user cannot list all payments');
+end $$;
+
 do $$ begin raise notice '=================================='; raise notice 'ALL BACKEND TESTS PASSED'; raise notice '=================================='; end $$;
 
 rollback;

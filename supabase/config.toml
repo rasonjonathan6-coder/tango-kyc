@@ -404,6 +404,13 @@ verify_jwt = true
 [functions.email-webhook]
 verify_jwt = false
 
+[functions.mvola-payments]
+# Same reasoning as create-kyc-request: the function calls `requireUser`, which
+# verifies the access token against Supabase Auth, and every SQL function it
+# invokes derives the actor from auth.uid(). An anonymous caller is rejected in
+# code with 401.
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

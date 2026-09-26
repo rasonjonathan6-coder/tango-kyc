@@ -17,9 +17,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_config.dart';
 import 'services/auth_service.dart';
 import 'services/kyc_service.dart';
+import 'services/mvola_service.dart';
 import 'state/admin_controller.dart';
+import 'state/admin_mvola_controller.dart';
 import 'state/auth_controller.dart';
 import 'state/kyc_controller.dart';
+import 'state/mvola_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/app_shell.dart';
 import 'ui/screens/login_screen.dart';
@@ -62,9 +65,14 @@ class TangoKycApp extends StatelessWidget {
         Provider<AuthService>.value(value: authService),
         Provider<KycService>.value(value: SupabaseKycService(client)),
         Provider<AdminService>.value(value: SupabaseAdminService(client)),
+        Provider<MvolaService>.value(value: SupabaseMvolaService(client)),
+        Provider<AdminMvolaService>.value(value: SupabaseAdminMvolaService(client)),
         ChangeNotifierProvider(create: (_) => AuthController(authService)..initialize()),
         ChangeNotifierProvider(create: (_) => KycController(SupabaseKycService(client))),
         ChangeNotifierProvider(create: (_) => AdminController(SupabaseAdminService(client))),
+        ChangeNotifierProvider(create: (_) => MvolaController(SupabaseMvolaService(client))),
+        ChangeNotifierProvider(
+            create: (_) => AdminMvolaController(SupabaseAdminMvolaService(client))),
         ChangeNotifierProvider(create: (_) => SettingsController(storage)..load()),
       ],
       child: Consumer<SettingsController>(

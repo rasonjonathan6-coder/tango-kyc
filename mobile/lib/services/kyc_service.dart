@@ -53,7 +53,7 @@ class SupabaseKycService implements KycService {
     required String tangoProfileLink,
     required String registerValue,
   }) async {
-    final payload = await _invokeFunction(
+    final payload = await invokeFunction(
       _client,
       'create-kyc-request',
       {
@@ -180,17 +180,18 @@ class SupabaseAdminService implements AdminService {
     Map<String, dynamic> extra,
     T Function(Map<String, dynamic>) parse,
   ) async {
-    final payload = await _invokeFunction(_client, 'admin-actions', {'action': action, ...extra});
+    final payload = await invokeFunction(_client, 'admin-actions', {'action': action, ...extra});
     return parse(payload);
   }
 }
 
 /// Invokes an Edge Function and unwraps its JSON body.
 ///
+/// Shared by the KYC and MVola services so the error mapping stays in one place.
 /// The Supabase client throws [FunctionException] on a non-2xx response before
 /// the caller ever sees the body, so the status and payload have to be read off
 /// the exception. See [kycExceptionFor] for the mapping.
-Future<Map<String, dynamic>> _invokeFunction(
+Future<Map<String, dynamic>> invokeFunction(
   SupabaseClient client,
   String name,
   Map<String, dynamic> body,

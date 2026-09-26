@@ -27,7 +27,11 @@ external account is marked *needs configuration* and is never faked.
 | Quarantine for unmatched replies, admin-only | Verified |
 | Clean reply body extraction (HTML → text, headers/quotes stripped) | Verified |
 | User notification email on a new reply | Implemented; needs a Resend key and a verified domain |
-| Flutter UI: splash, login, register, forgot/reset, home, create request, my requests, details, profile, settings, admin dashboard | Verified (`flutter analyze` clean, 69 tests pass) |
+| Flutter UI: splash, login, register, forgot/reset, home, create request, my requests, details, profile, settings, admin dashboard | Verified (`flutter analyze` clean, 95 tests pass) |
+| Manual MVola payment: start, submit reference, admin approve/refuse, user sees the outcome | Verified end-to-end against the deployed project (50 assertions) and in the DB suite |
+| MVola price and USSD code taken from server config, never from the client | Verified (DB suite + live E2E: the client only ever sends a ticket id) |
+| Double-payment protection (one live payment per ticket; a refused one may be corrected) | Verified (partial unique index, DB suite + live E2E) |
+| MVola thresholds and instructions editable without an app release | Verified (`app_settings` row `mvola`) |
 | Debug APK build | Verified |
 
 Nothing in this repository fabricates a result. Where a provider is not
@@ -48,6 +52,20 @@ recovery callback fail to arrive. A unit test now guards this.
 **Note on Google sign-in.** Implemented in the client, but it cannot work until
 you create a Google OAuth client. It is not claimed as verified anywhere in these
 docs, and `docs/GOOGLE_AUTH_SETUP.md` says so at the top.
+
+**Note on MVola.** This is a *manual* payment flow, not a payment gateway. MVola
+exposes no public self-serve API for this kind of transfer, so the user sends the
+money from their own phone and an admin checks the transaction reference against
+the MVola statement before approving. The app automates the instructions, the
+bookkeeping and the verification queue — it does not move money, and it never
+shows a payment as settled until an admin has approved it. The amount is
+20000 MGA and the recipient is set in the `mvola` row of `app_settings`; change
+them with SQL, no release needed.
+
+**Note on the USSD "Dial" button.** It opens the dialer with the USSD code. Some
+Android builds refuse to launch a `tel:` URI for a USSD string; when that
+happens the app tells the user to compose the code manually. It never pretends
+the dialer opened.
 
 ## Repository layout
 

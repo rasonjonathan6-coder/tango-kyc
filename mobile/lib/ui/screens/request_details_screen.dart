@@ -12,6 +12,7 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/kyc_controller.dart';
 import '../widgets/common.dart';
+import 'mvola_payment_screen.dart';
 
 class RequestDetailsScreen extends StatefulWidget {
   const RequestDetailsScreen({super.key, required this.ticketId});
@@ -151,6 +152,20 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                   InfoRow(
                     label: 'Last update',
                     value: formatDateTime(request.lastReplyAt ?? request.updatedAt ?? request.createdAt),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => MvolaPaymentScreen(
+                          ticketId: request.id,
+                          ticketCode: request.ticketCode,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),
+                    label: const Text('Pay with MVola'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
                   ),
                 ],
               ),

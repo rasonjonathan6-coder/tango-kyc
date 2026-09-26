@@ -10,6 +10,7 @@ import '../../models/models.dart';
 import '../../state/auth_controller.dart';
 import '../../state/kyc_controller.dart';
 import '../widgets/common.dart';
+import 'mvola_payment_screen.dart';
 import 'my_requests_screen.dart';
 import 'request_details_screen.dart';
 
@@ -150,6 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _SuccessCard(
                 ticket: _justCreated!,
                 onOpen: () => _openTicket(_justCreated!),
+                onPay: () => _openPayment(_justCreated!),
                 onDismiss: () => setState(() => _justCreated = null),
               ),
             ),
@@ -271,13 +273,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (mounted) await context.read<KycController>().load();
   }
+
+  Future<void> _openPayment(KycRequest request) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MvolaPaymentScreen(ticketId: request.id, ticketCode: request.ticketCode),
+      ),
+    );
+  }
 }
 
 class _SuccessCard extends StatelessWidget {
-  const _SuccessCard({required this.ticket, required this.onOpen, required this.onDismiss});
+  const _SuccessCard({
+    required this.ticket,
+    required this.onOpen,
+    required this.onPay,
+    required this.onDismiss,
+  });
 
   final KycRequest ticket;
   final VoidCallback onOpen;
+  final VoidCallback onPay;
   final VoidCallback onDismiss;
 
   @override
@@ -339,6 +355,13 @@ class _SuccessCard extends StatelessWidget {
               icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
               label: const Text('View request'),
               style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: onPay,
+              icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),
+              label: const Text('Pay with MVola'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
             ),
           ],
         ),

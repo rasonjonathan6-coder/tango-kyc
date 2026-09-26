@@ -10,6 +10,7 @@ import '../../models/models.dart';
 import '../../state/admin_controller.dart';
 import '../../state/auth_controller.dart';
 import '../widgets/common.dart';
+import 'admin_mvola_screen.dart';
 import 'admin_ticket_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -53,6 +54,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           const SizedBox(height: 12),
           AnimatedEntry(child: _StatsGrid(stats: admin.stats)),
+          const SizedBox(height: 14),
+          AnimatedEntry(
+            child: Card(
+              child: ListTile(
+                leading: const Icon(Icons.account_balance_wallet_rounded),
+                title: const Text('MVola payments'),
+                subtitle: const Text('Verify manual Mobile Money transfers'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AdminMvolaScreen()),
+                ),
+              ),
+            ),
+          ),
           if (admin.unmatched.isNotEmpty) ...[
             const SizedBox(height: 22),
             Text(

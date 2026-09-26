@@ -82,6 +82,30 @@ class Validators {
     if ((password ?? '') != (confirmation ?? '')) return 'Passwords do not match.';
     return null;
   }
+
+  /// MVola transaction reference. Mirrors `mvola_submit_payment`: 3-64
+  /// characters, no markup and no control characters. The backend re-checks it.
+  static String? validateMvolaReference(String? value) {
+    final reference = normalize(value ?? '');
+    if (reference.isEmpty) return 'Please enter your MVola transaction reference.';
+    if (reference.length < 3) return 'This transaction reference is too short.';
+    if (reference.length > 64) return 'This transaction reference is too long.';
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9 ._/-]*$').hasMatch(reference)) {
+      return 'Use letters, digits, spaces and . _ / - only.';
+    }
+    return null;
+  }
+
+  /// The number the transfer was sent from. Optional, but validated when given.
+  static String? validateMvolaPayerNumber(String? value) {
+    final input = normalize(value ?? '');
+    if (input.isEmpty) return null;
+    final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length < 7 || digits.length > 15) {
+      return 'Please enter a valid phone number (7 to 15 digits).';
+    }
+    return null;
+  }
 }
 
 /// Maps technical failures to clear, non-technical messages.
@@ -111,6 +135,18 @@ class ErrorMessages {
       'EMAIL_DELIVERY_FAILED':
           'Your request was saved, but the confirmation email could not be sent. Support has been notified.',
       'SERVICE_NOT_CONFIGURED': 'This service is temporarily unavailable. Please try again later.',
+      // MVola
+      'PAYMENT_NOT_FOUND': 'Payment not found.',
+      'PAYMENT_ALREADY_REVIEWED': 'This payment has already been reviewed.',
+      'MVOLA_NOT_CONFIGURED': 'Mobile Money payment is not available right now.',
+      'MVOLA_DISABLED': 'Mobile Money payment is not available right now.',
+      'MVOLA_UNAVAILABLE': 'Mobile Money payment is not available right now.',
+      'MVOLA_REFERENCE_REQUIRED': 'Please enter your MVola transaction reference.',
+      'MVOLA_REFERENCE_INVALID': 'This transaction reference is not valid.',
+      'MVOLA_PAYER_INVALID': 'Please enter a valid phone number.',
+      'MVOLA_DECISION_INVALID': 'Invalid decision.',
+      'MVOLA_REASON_REQUIRED': 'Please explain why the payment is refused.',
+      'MVOLA_REASON_INVALID': 'This explanation is too long.',
       'INTERNAL': 'Something went wrong. Please try again.',
     };
 

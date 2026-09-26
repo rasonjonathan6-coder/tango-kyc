@@ -77,6 +77,10 @@ email_events     id, ticket_id, provider, external_id, event_type, payload_hash,
 unmatched_replies id, provider, external_id, from_email, to_email, subject,
                  body_excerpt, reason, resolved_ticket_id, resolved_at, created_at
 app_settings     key, value (jsonb)   -- rate limits; server-tunable
+mvola_payments   id, user_id, ticket_id, amount, currency, recipient_number,
+                 payer_number, transaction_reference, ussd_code, status,
+                 rejection_reason, created_at, updated_at, submitted_at,
+                 reviewed_at, reviewed_by
 ```
 
 `sender_type` is `user`, `admin` or `system`. A `system` row records the original
@@ -86,6 +90,66 @@ submission so the conversation reads as a real thread.
 `detect_register_type()`. It is stored rather than inferred at read time so the
 admin email wording and the notification policy stay stable even if the
 detection rules are later refined.
+
+## Manual MVola payments
+
+Payment is a separate, additive concern from KYC. A ticket does not depend on a
+payment, and no existing KYC, email or admin path was changed to introduce it.
+
+```
+User picks a ticket
+        │
+        ▼
+POST mvola-payments { action: start, ticket_id }
+        │  mvola_start_payment()  (security definer)
+        │  reads amount, recipient and USSD from app_settings
+        ▼
+pending  ── user sends the transfer themselves, from their own phone ──
+        │
+        ▼
+POST mvola-payments { action: submit, payment_id, transaction_reference }
+        │  mvola_submit_payment()  (security definer)
+        ▼
+pending + submitted_at          the app now shows "awaiting verification"
+        │
+        ▼
+admin opens the queue, checks the reference against the MVola statement
+        │
+        ▼
+POST admin-actions { action: mvola_decision }   admin_mvola_set_decision()
+        │
+        ├── approved   final; the ticket can never open another payment
+        └── rejected   records a reason; the user may start a corrected payment
+```
+
+Three properties are enforced in the database rather than in the client:
+
+1. **The price is never a client input.** `mvola_start_payment` copies the
+   amount, currency, recipient and USSD code from `app_settings` at creation
+   time. The client sends only a ticket id, so a tampered request cannot buy a
+   verification for one ariary.
+2. **One live payment per ticket.** A partial unique index on
+   `(ticket_id) where status in ('pending', 'approved')` blocks a second active
+   payment at the database level. A rejected row falls outside the index, which
+   is exactly what allows a corrected resubmission while keeping an approved
+   payment final. `start` on a ticket that already has an approved payment
+   returns that payment instead of erroring.
+3. **Only an admin decides.** `mvola_payments` grants no INSERT, UPDATE or
+   DELETE to `authenticated`; the decision function calls `is_admin()` and the
+   admin Edge Function calls it again. A user approving their own payment is
+   refused at both layers.
+
+The USSD code is composed by `mvola_ussd_code()` from the template in
+`app_settings` (`#111*1*2*{recipient}*{amount}*2#`), so the operator can change
+the dial string without an app release. The app presents it as a `tel:` URI;
+on Android 11+ the manifest declares the matching `<queries>` intents, without
+which the dialer cannot be resolved. When no dialer accepts the URI the app says
+so and tells the user to compose the code manually rather than failing silently.
+
+Nothing here is a payment gateway. MVola has no public self-serve API for this
+kind of transfer, so the money moves person to person and a human confirms it.
+The app automates the bookkeeping and the verification queue, not the transfer,
+and it never displays a payment as settled before an admin has approved it.
 
 ## Idempotency
 

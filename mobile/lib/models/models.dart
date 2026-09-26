@@ -176,6 +176,129 @@ class TicketMessage {
       );
 }
 
+/// Manual MVola payment lifecycle.
+///
+/// `pending` covers two situations the UI distinguishes by `submittedAt`: not
+/// yet confirmed by the user, or awaiting admin verification. Only an admin can
+/// reach `approved` or `rejected`.
+enum MvolaStatus {
+  pending,
+  approved,
+  rejected,
+  cancelled;
+
+  static MvolaStatus parse(String? value) => switch (value) {
+        'approved' => MvolaStatus.approved,
+        'rejected' => MvolaStatus.rejected,
+        'cancelled' => MvolaStatus.cancelled,
+        _ => MvolaStatus.pending,
+      };
+
+  String get label => switch (this) {
+        MvolaStatus.pending => 'Pending',
+        MvolaStatus.approved => 'Approved',
+        MvolaStatus.rejected => 'Refused',
+        MvolaStatus.cancelled => 'Cancelled',
+      };
+}
+
+/// The payer-facing payment instructions. Every value comes from server
+/// configuration; none of it is hard-coded in the app.
+class MvolaConfig {
+  const MvolaConfig({
+    required this.recipientNumber,
+    required this.amount,
+    required this.currency,
+    required this.ussdCode,
+    required this.instructions,
+  });
+
+  final String recipientNumber;
+  final double amount;
+  final String currency;
+  final String ussdCode;
+  final String instructions;
+
+  /// The amount as it should be shown: no trailing `.0` for whole amounts.
+  String get amountLabel {
+    final whole = amount == amount.roundToDouble();
+    return '${whole ? amount.toStringAsFixed(0) : amount.toStringAsFixed(2)} $currency';
+  }
+
+  factory MvolaConfig.fromMap(Map<String, dynamic> map) => MvolaConfig(
+        recipientNumber: (map['recipient_number'] as String?) ?? '',
+        amount: (map['amount'] as num?)?.toDouble() ?? 0,
+        currency: (map['currency'] as String?) ?? 'MGA',
+        ussdCode: (map['ussd_code'] as String?) ?? '',
+        instructions: (map['instructions'] as String?) ?? '',
+      );
+}
+
+class MvolaPayment {
+  const MvolaPayment({
+    required this.id,
+    required this.ticketId,
+    required this.amount,
+    required this.currency,
+    required this.recipientNumber,
+    required this.ussdCode,
+    required this.status,
+    required this.createdAt,
+    this.payerNumber,
+    this.transactionReference,
+    this.rejectionReason,
+    this.submittedAt,
+    this.reviewedAt,
+    this.ticketCode,
+    this.userEmail,
+  });
+
+  final String id;
+  final String ticketId;
+  final double amount;
+  final String currency;
+  final String recipientNumber;
+  final String ussdCode;
+  final MvolaStatus status;
+  final DateTime createdAt;
+  final String? payerNumber;
+  final String? transactionReference;
+  final String? rejectionReason;
+  final DateTime? submittedAt;
+  final DateTime? reviewedAt;
+
+  /// Present only in the admin listing.
+  final String? ticketCode;
+  final String? userEmail;
+
+  /// True once the user confirmed they paid; still awaiting an admin decision.
+  bool get isAwaitingReview =>
+      status == MvolaStatus.pending && submittedAt != null;
+
+  String get amountLabel {
+    final whole = amount == amount.roundToDouble();
+    return '${whole ? amount.toStringAsFixed(0) : amount.toStringAsFixed(2)} $currency';
+  }
+
+  factory MvolaPayment.fromMap(Map<String, dynamic> map) => MvolaPayment(
+        id: map['id'] as String,
+        ticketId: (map['ticket_id'] as String?) ?? '',
+        amount: (map['amount'] as num?)?.toDouble() ?? 0,
+        currency: (map['currency'] as String?) ?? 'MGA',
+        recipientNumber: (map['recipient_number'] as String?) ?? '',
+        ussdCode: (map['ussd_code'] as String?) ?? '',
+        status: MvolaStatus.parse(map['status'] as String?),
+        createdAt: DateTime.tryParse((map['created_at'] as String?) ?? '')?.toLocal() ?? DateTime.now(),
+        payerNumber: map['payer_number'] as String?,
+        transactionReference: map['transaction_reference'] as String?,
+        rejectionReason: map['rejection_reason'] as String?,
+        submittedAt: DateTime.tryParse((map['submitted_at'] as String?) ?? '')?.toLocal(),
+        reviewedAt: DateTime.tryParse((map['reviewed_at'] as String?) ?? '')?.toLocal(),
+        ticketCode: map['ticket_code'] as String?,
+        userEmail: map['user_email'] as String?,
+      );
+}
+
 class UnmatchedReply {
   const UnmatchedReply({
     required this.id,

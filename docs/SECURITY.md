@@ -27,6 +27,7 @@ unreadable rather than open.
 | `email_events` | No access | Read via functions |
 | `unmatched_replies` | No access | Read and resolve |
 | `app_settings` | No access | Read |
+| `mvola_payments` | Read own only; **no** insert/update/delete | Read all |
 
 `app_settings` holds the rate-limit values, so it is admin-only for reads as
 well. The client never reads it: the app is given the limits it needs through the
@@ -41,9 +42,14 @@ The properties the test suite asserts directly:
 - a user cannot change `status`
 - a user cannot insert a ticket at all (creation is a `security definer` function)
 - a user cannot set their own `role`
-- a non-admin cannot call `admin_stats`, `admin_ticket_list`, `admin_post_message`
-  or `admin_resolve_unmatched_reply`
+- a non-admin cannot call `admin_stats`, `admin_ticket_list`, `admin_post_message`,
+  `admin_resolve_unmatched_reply` or `admin_mvola_set_decision`
 - a user cannot post a message on another user's ticket
+- a user cannot see another user's payment
+- a user cannot start a payment on another user's ticket
+- a user cannot submit another user's payment
+- a normal user cannot call `admin_mvola_set_decision`
+- a ticket can never hold two live payments (one `pending` or `approved`) at once
 
 The client has no write path to these tables at all: writes go through functions
 that check the caller and set the security-relevant fields themselves. The one
@@ -149,6 +155,17 @@ is. Duplicate detection is on the normalised (profile link, register value) pair
 
 User messages are capped at 5 per minute per ticket, and message bodies at
 20 000 characters.
+
+MVola payments add no new client-writable surface. The client may only name a
+ticket when starting a payment, and the amount, currency, recipient and USSD code
+are read from `app_settings` at that moment — a tampered request cannot change
+the price. A partial unique index on `(ticket_id) where status in ('pending',
+'approved')` prevents a second live payment for one ticket, and a decided
+payment cannot be decided again. Approving or refusing checks `is_admin()` inside
+the SQL function and again in the admin Edge Function, so a user cannot approve
+their own payment at either layer. The reference is length- and charset-checked
+in Postgres (`^[A-Za-z0-9][A-Za-z0-9 ._/-]*$`) and rendered only as plain text in
+the app.
 
 ## Error handling
 
