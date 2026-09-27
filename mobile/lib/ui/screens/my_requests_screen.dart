@@ -7,7 +7,10 @@ import 'package:provider/provider.dart';
 import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/kyc_controller.dart';
+import '../../state/notifications_controller.dart';
+import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/modern.dart';
 import 'request_details_screen.dart';
 
 class MyRequestsScreen extends StatefulWidget {
@@ -22,8 +25,20 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<KycController>().load();
+      final kyc = context.read<KycController>();
+      final notifications = context.read<NotificationsController>();
+      kyc.load().then((_) {
+        if (!mounted) return;
+        notifications.sync(kyc.requests);
+      });
     });
+  }
+
+  Future<void> _reload() async {
+    final kyc = context.read<KycController>();
+    await kyc.load();
+    if (!mounted) return;
+    context.read<NotificationsController>().sync(kyc.requests);
   }
 
   @override
@@ -33,7 +48,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('My Requests')),
       body: RefreshIndicator(
-        onRefresh: () => kyc.load(),
+        onRefresh: _reload,
         child: _body(kyc),
       ),
     );
@@ -41,7 +56,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 
   Widget _body(KycController kyc) {
     if (kyc.loading && kyc.requests.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
 
     if (kyc.error != null && kyc.requests.isEmpty) {
@@ -67,12 +82,12 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+      padding: AppSpacing.page,
       itemCount: kyc.requests.length,
       itemBuilder: (context, index) {
         final request = kyc.requests[index];
         return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _RequestCard(request: request),
         );
       },
@@ -99,7 +114,7 @@ class _RequestCard extends StatelessWidget {
           if (context.mounted) await context.read<KycController>().load();
         },
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

@@ -247,6 +247,21 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Modèles d'authentification. Les trois partagent le même design.
+# Inscription (signUp) -> confirmation ; mot de passe oublié -> recovery ;
+# connexion par code (signInWithOtp, qui passe par /otp) -> magic_link.
+[auth.email.template.confirmation]
+subject = "Confirmez votre adresse email Tango KYC"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Réinitialisez votre mot de passe Tango KYC"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Votre code de vérification Tango KYC"
+content_path = "./supabase/templates/magic_link.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true

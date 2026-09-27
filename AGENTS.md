@@ -56,6 +56,26 @@ bash tests/scripts/e2e_local.sh
 - **Anti-spam limits are not environment variables.** They live in the
   `rate_limit` row of `app_settings` and are edited with SQL. `.env.example` no
   longer advertises env vars for them; don't reintroduce that.
+- **Auth is configured on the cloud project, not in `supabase/config.toml`.**
+  `config.toml` describes the local stack only. The live project
+  (`hbvjpawnszzcbcjmbkuf`) has `mailer_autoconfirm = false`, so sign-up returns no
+  session; the app must complete confirmation. Read the real values with
+  `GET https://api.supabase.com/v1/projects/$REF/config/auth` using
+  `SUPABASE_ACCESS_TOKEN` instead of assuming the local defaults.
+- **The email OTP length is 8, not 6.** `mailer_otp_length = 8` on the project.
+  `kEmailOtpLength` in `otp_screen.dart` mirrors it; changing one without the other
+  breaks code entry.
+- **Codes render the Magic Link template, not the recovery template.**
+  `gotrue`'s `signInWithOtp` posts to `/otp` with no `type` parameter and uses the
+  magiclink email; `verifyOTP` then takes the `type`. Verified by reading
+  `gotrue-2.27.2/lib/src/gotrue_client.dart`, not assumed. The magiclink template
+  must contain `{{ .Token }}` or the code never reaches the user.
+- **`resend` rejects `OtpType.recovery` for an email** (it asserts `signup` or
+  `emailChange`), so the recovery resend re-uses the send path.
+- **Auth email is limited to 30 per hour per address** (`rate_limit_email_sent`,
+  read from the live project — an earlier note claiming 2 was wrong). Supabase also
+  sits behind a separate platform-wide send cap, so a burst of test signups can
+  still be throttled for reasons unrelated to your code.
 - **Release signing** reads `mobile/android/key.properties` or `KEYSTORE_PATH` &
   friends. With no keystore the release build still succeeds but is signed with
   the Android debug key and must not be shipped.
@@ -104,3 +124,37 @@ bash tests/scripts/e2e_local.sh
   `app_metadata.role` is `admin`. Backfill with the trigger's own mapping
   (`full_name` → `name` → email local part, role from `app_metadata`). The real
   admin account needed this after migrations were applied to the cloud project.
+
+## Mobile UI (2026 modernization pass)
+
+- **The design system lives in mobile/lib/ui/theme/app_theme.dart.** It exports
+  AppSpacing, AppRadius, AppTheme.heroGradient(brightness), AppTheme.onHero and
+  AppTheme.statusColor(context, status). New UI must use these tokens rather than
+  hard-coded paddings or colours, so light/dark stay consistent.
+- **mobile/lib/ui/widgets/modern.dart holds the reusable modern pieces:**
+  SkeletonBox / SkeletonCard / SkeletonList (shimmer via one AnimationController,
+  no extra dependency), StatusHero, JourneyTimeline, NotificationTile, SectionHeader.
+- **Notifications are derived, never fetched.** NotificationsController.sync()
+  builds them from KycController.requests - data already RLS-scoped to the caller -
+  so no new endpoint or table is involved. Read state persists in
+  flutter_secure_storage under notifications.seen_replies. A reply is unread when
+  request.lastReplyAt is newer than the stored timestamp.
+- **mobile/lib/core/kyc_journey.dart is pure Dart** (no Flutter import) so it can be
+  unit tested directly. It is the single source of truth for the four-step journey
+  wording: submitted -> MVola payment -> manual review -> answer.
+- **Onboarding runs once.** SettingsController.onboardingDone gates it in _RootGate
+  (mobile/lib/main.dart); the flag persists under settings.onboarding_done.
+- **Widget tests assert exact strings and icons.** Examples: Tango KYC Verification,
+  Continue with Google, Sign in, Forgot password?, No requests yet, Reply received,
+  Icons.visibility_rounded. Preserve these labels when restyling, or update
+  test/screens_test.dart in the same change. Baseline after the UI pass:
+  flutter analyze clean, 107 tests pass.
+- **Build with the sandbox JDK explicitly:** export JAVA_HOME=/workspace/tools/jdk17
+  and prepend /workspace/tools/flutter/bin:/workspace/tools/jdk17/bin to PATH. The
+  default shell JAVA_HOME is unset, and Gradle fails with "Please set the JAVA_HOME
+  variable" if you skip it. Release build: flutter build apk --release ->
+  build/app/outputs/flutter-apk/app-release.apk.
+- **No Android emulator is available in this environment** (flutter devices shows
+  only the Linux desktop target, emulator -list-avds finds nothing). APK smoke
+  testing on a device must be done by the user. Do not claim the app was smoke
+  tested on Android here.

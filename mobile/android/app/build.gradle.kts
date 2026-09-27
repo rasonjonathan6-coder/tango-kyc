@@ -6,11 +6,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Release signing material. Either provide `android/key.properties`
+// Release signing material. Provide `android/key.properties`
 // (KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) or the matching
-// environment variables; both files are git-ignored. When neither is present the
-// release build falls back to the debug key so local builds keep working, but it
-// is not publishable to Play in that state.
+// environment variables. Both files are git-ignored. A release build never falls
+// back to the debug key: without this material it fails, because a debug-signed
+// artifact is rejected by Google Play and unsafe to distribute.
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -22,6 +22,11 @@ fun signingValue(propertyName: String, envName: String): String? =
 
 val releaseStorePath = signingValue("KEYSTORE_PATH", "KEYSTORE_PATH")
 val hasReleaseSigning = releaseStorePath != null
+
+// The `release` block below is evaluated for every build, including debug, so a
+// missing keystore must only fail the builds that actually produce a release
+// artifact. Gradle is invoked with `assembleRelease` / `bundleRelease` by Flutter.
+val releaseBuildRequested = gradle.startParameter.taskNames.any { it.contains("Release") }
 
 android {
     namespace = "com.tango.kyc.tango_kyc_verification"
@@ -60,14 +65,26 @@ android {
 
     buildTypes {
         release {
+            if (!hasReleaseSigning) {
+                if (releaseBuildRequested) {
+                    throw GradleException(
+                        "Release signing is not configured. Create android/key.properties " +
+                            "with KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD " +
+                            "(see docs/DEPLOYMENT.md), or set the matching environment " +
+                            "variables. A debug-signed release artifact is not publishable.",
+                    )
+                }
+                logger.warn(
+                    "WARNING: release signing is not configured; the release build type " +
+                        "will fail if it is ever assembled.",
+                )
+            }
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
-                logger.warn(
-                    "WARNING: no release keystore configured (android/key.properties or " +
-                        "KEYSTORE_PATH). Falling back to the debug signing key; this build " +
-                        "cannot be published to Google Play.",
-                )
+                // Unreachable for a release build: the check above throws first. A
+                // debug build never assembles this variant, so this placeholder is
+                // never used to sign a distributed artifact.
                 signingConfigs.getByName("debug")
             }
         }

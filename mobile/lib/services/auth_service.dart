@@ -27,6 +27,25 @@ enum AuthCallbackOutcome {
   passwordRecovery,
 }
 
+/// The two email-OTP flows the application supports.
+///
+/// Kept deliberately narrow: Supabase exposes many `OtpType` values, but only
+/// these two are meaningful to this app, and an accidental third would be a bug
+/// rather than a feature.
+enum EmailOtpPurpose {
+  /// Confirming ownership of a freshly created account.
+  signup,
+
+  /// Proving ownership of an existing account before setting a new password.
+  recovery,
+}
+
+/// Maps the narrow app purpose onto the auth library's `OtpType`.
+OtpType otpTypeFor(EmailOtpPurpose purpose) => switch (purpose) {
+      EmailOtpPurpose.signup => OtpType.signup,
+      EmailOtpPurpose.recovery => OtpType.recovery,
+    };
+
 /// Maps the auth library's `redirectType` to a routing outcome.
 ///
 /// `redirectType` is `'passwordRecovery'` for a reset link and `null` for an
@@ -45,6 +64,20 @@ abstract class AuthService {
   Future<void> signInWithPassword({required String email, required String password});
   Future<void> signUp({required String email, required String password, String? displayName});
   Future<void> sendPasswordReset(String email);
+
+  /// Emails a one-time code for [purpose]. Does not create or change a session.
+  Future<void> sendEmailOtp(String email, EmailOtpPurpose purpose);
+
+  /// Exchanges the emailed code for a session. Throws on an invalid or expired
+  /// code, so callers must surface the failure rather than assume success.
+  Future<void> verifyEmailOtp({
+    required String email,
+    required String token,
+    required EmailOtpPurpose purpose,
+  });
+
+  /// Re-sends a code. Subject to the project's per-hour email rate limit.
+  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose);
   Future<void> updatePassword(String newPassword);
   Future<void> resendConfirmation(String email);
   Future<void> signOut();
@@ -111,6 +144,51 @@ class SupabaseAuthService implements AuthService {
   @override
   Future<void> resendConfirmation(String email) =>
       _auth.resend(type: OtpType.signup, email: email);
+
+  /// Sends the one-time code.
+  ///
+  /// `signInWithOtp` is used rather than the password-reset endpoint because it
+  /// is the only flow that mails a *code*. It renders the project's "magic link"
+  /// email template — Supabase has no separate "OTP" template slot — which is why
+  /// that template must contain `{{ .Token }}` (see docs/EMAIL_SETUP.md).
+  ///
+  /// It shares one endpoint for both purposes, so the `purpose` is carried by the
+  /// verification call instead of the send.
+  ///
+  /// `emailRedirectTo` is deliberately omitted: Supabase treats a request that
+  /// carries one as a magic-link request, so leaving it out is what keeps this a
+  /// pure code send. `OtpScreen` only accepts a code, and the template for this
+  /// path carries `{{ .Token }}` and no link, so a deep link would serve no purpose.
+  ///
+  /// `shouldCreateUser: false` is deliberate: registration already inserted the
+  /// (unconfirmed) user, and a recovery request must never mint an account for an
+  /// address that has none. Supabase still answers 200 either way, which also
+  /// avoids leaking whether an address is registered.
+  @override
+  Future<void> sendEmailOtp(String email, EmailOtpPurpose purpose) =>
+      _auth.signInWithOtp(
+        email: email,
+        shouldCreateUser: false,
+      );
+
+  @override
+  Future<void> verifyEmailOtp({
+    required String email,
+    required String token,
+    required EmailOtpPurpose purpose,
+  }) =>
+      _auth.verifyOTP(
+        email: email,
+        token: token,
+        type: otpTypeFor(purpose),
+      );
+
+  /// Re-sends the code. `resend` only accepts `signup` / `emailChange` for an
+  /// email address, so recovery re-sends through the same endpoint as the first
+  /// send. The project's per-hour email limit still applies.
+  @override
+  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) =>
+      sendEmailOtp(email, purpose);
 
   @override
   Future<void> signOut() => _auth.signOut();

@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/validators.dart';
+import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
 import '../widgets/common.dart';
+import 'otp_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -83,7 +85,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         ),
                         const SizedBox(height: 30),
                         FilledButton(
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: auth.busy
+                              ? null
+                              : () => Navigator.of(context).pushReplacement(
+                                    MaterialPageRoute(
+                                      builder: (_) => OtpScreen(
+                                        email: Validators.normalize(_emailController.text),
+                                        purpose: EmailOtpPurpose.recovery,
+                                      ),
+                                    ),
+                                  ),
+                          child: const Text('Enter a code instead'),
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton(
+                          onPressed: auth.busy ? null : () => Navigator.of(context).pop(),
                           child: const Text('Back to sign in'),
                         ),
                       ],

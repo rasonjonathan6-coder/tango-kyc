@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/validators.dart';
+import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
 import '../widgets/common.dart';
+import 'otp_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -59,11 +61,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     // A missing session means Supabase sent a confirmation email instead of
-    // immediately signing the user in.
+    // immediately signing the user in. The mail carries both a link and a code;
+    // offer the code so the user can finish inside the app.
     if (auth.isSignedIn) {
       Navigator.of(context).pop();
     } else {
-      setState(() => _awaitingConfirmation = true);
+      final codeSent = await auth.sendEmailOtp(
+        email: email,
+        purpose: EmailOtpPurpose.signup,
+      );
+      if (!mounted) return;
+      if (codeSent) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => OtpScreen(email: email, purpose: EmailOtpPurpose.signup),
+          ),
+        );
+      } else {
+        // The code could not be requested, but the confirmation link still
+        // works, so fall back to the link instructions rather than failing.
+        setState(() => _awaitingConfirmation = true);
+      }
     }
   }
 

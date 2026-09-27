@@ -106,6 +106,24 @@ class AuthController extends ChangeNotifier {
 
   Future<bool> resendConfirmation(String email) => run(() => _auth.resendConfirmation(email));
 
+  /// Requests a one-time code. Sends a real email; nothing is simulated.
+  Future<bool> sendEmailOtp({required String email, required EmailOtpPurpose purpose}) =>
+      run(() => _auth.sendEmailOtp(email, purpose));
+
+  /// Exchanges a code for a session. Returns false (with `lastError` set) on an
+  /// invalid or expired code so the UI can offer a retry.
+  Future<bool> verifyEmailOtp({
+    required String email,
+    required String token,
+    required EmailOtpPurpose purpose,
+  }) =>
+      run(() => _auth.verifyEmailOtp(email: email, token: token, purpose: purpose));
+
+  /// Re-sends a code. The server enforces its own per-hour limit; a rejection
+  /// surfaces through `lastError`.
+  Future<bool> resendEmailOtp({required String email, required EmailOtpPurpose purpose}) =>
+      run(() => _auth.resendEmailOtp(email, purpose));
+
   Future<bool> signInWithGoogle() => run(() async {
         final started = await _auth.signInWithGoogle();
         if (!started) {

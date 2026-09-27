@@ -193,7 +193,137 @@ No sensitive content, no verification link — just a pointer to the app, which
 requires authentication. A phone-only requester is never assigned an invented
 address; their reply appears in the dashboard only.
 
-## 11. Local development
+## 11. The Supabase Auth templates
+
+The app triggers **three** Auth emails. All three share one themed design, and
+all three are sent by **Supabase Auth** — not by Mailjet or Resend — so they are
+independent of everything above.
+
+| File | Triggered by | Subject |
+| --- | --- | --- |
+| `templates/confirmation.html` | `signUp()` — the register screen | `Confirmez votre adresse email Tango KYC` |
+| `templates/recovery.html` | `resetPasswordForEmail()` — forgot password | `Réinitialisez votre mot de passe Tango KYC` |
+| `templates/magic_link.html` | `signInWithOtp()` — sign in with a code | `Votre code de vérification Tango KYC` |
+
+`confirmation` and `recovery` carry a **button** to `{{ .ConfirmationURL }}`.
+`magic_link` carries a **code** (`{{ .Token }}`) and deliberately no link, because
+`OtpScreen` only accepts a code.
+
+They are wired up in `supabase/config.toml`:
+
+```toml
+[auth.email.template.confirmation]
+subject = "Confirmez votre adresse email Tango KYC"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Réinitialisez votre mot de passe Tango KYC"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Votre code de vérification Tango KYC"
+content_path = "./supabase/templates/magic_link.html"
+```
+
+`config.toml` only drives the **local** stack. The hosted project keeps its own
+copies, so the same HTML must also be pasted into the dashboard (see
+`SUPABASE_SETUP.md`). Editing a file here does not change what the live project
+sends.
+
+### Theming only one template is a common trap
+
+Registering with an email and password sends `confirmation`, **not**
+`magic_link`. Restyling only the code template therefore leaves the signup email
+looking like Supabase's generic default. All three are themed here for that
+reason.
+
+### Sender
+
+Auth mail is **not** sent by the shared Supabase SMTP on this project. A custom
+SMTP is configured, pointing at Resend:
+
+| Setting | Value |
+| --- | --- |
+| `smtp_host` | `smtp.resend.com` |
+| `smtp_port` | `465` |
+| `smtp_admin_email` | `no-reply@jo67.dpdns.org` |
+| `smtp_sender_name` | `Tango KYC` |
+| `smtp_max_frequency` | `60` |
+
+Because Resend is already verified for inbound, the same domain covers Auth mail.
+The SMTP **password** is held only by Supabase; it is not in this repository.
+
+### Why this template is not a plain link
+
+`signInWithOtp` posts to `/otp` and renders the **magic link** template, not the
+recovery one. The template therefore has to carry `{{ .Token }}`. Without it the
+mail is delivered with no code in it and the code-entry screen can never succeed.
+There is deliberately no fallback link: this screen only accepts a code.
+
+There is no separate "OTP" entry in the Supabase dashboard — the template list is
+`confirmation`, `recovery`, `magic_link`, `email_change`, `invite` and
+`reauthentication`. Magic link **is** the template an email OTP uses, which is
+why it has to be edited for the code flow.
+
+### Keeping the send a code, not a link
+
+Supabase decides between "magic link" and "code" from the request, not from the
+template alone. Two conditions have to hold:
+
+1. `signInWithOtp` must **not** be given `emailRedirectTo`. Passing one makes
+   Supabase treat the request as a magic-link request.
+2. The template must render `{{ .Token }}`.
+
+`AuthService.sendEmailOtp` therefore passes only `email` and
+`shouldCreateUser: false`. Removing `emailRedirectTo` is what keeps the send a
+pure code send; a deep link would serve no purpose here because `OtpScreen` only
+accepts a code.
+
+### Design constraints that shaped the markup
+
+Email clients are not browsers. The choices below are load-bearing, not style
+preferences:
+
+- **The code is text, never an image.** Images are blocked by default in Gmail
+  and Outlook, so a code rendered as an image would be invisible on first open.
+- **No base64 `data:` images.** Gmail strips them outright.
+- **Table layout, not flex or grid.** Outlook's renderer has no support for
+  either. The MSO conditional comment pins the 580px width.
+- **No webfonts.** They are unsupported or silently substituted, so the code uses
+  a monospace stack likely to exist locally.
+- **The code is at 32px with 6px letter-spacing below 420px wide.** At the
+  desktop size of 40px/10px, eight digits measure 273px, but a 320px-wide client
+  only offers about 242px inside the panel — it overflowed. At 32px/6px it
+  measures 202px, leaving roughly a 20% margin for clients lacking the intended
+  monospace face.
+- **Colours come from the app.** `mobile/lib/ui/theme/app_theme.dart` uses a
+  teal seed (`#2F6B5F`) with a `#2F6B5F`→`#46947D` hero gradient. The template
+  matches it so mail and app look like one product.
+
+### Logo
+
+There is currently **no logo file in this repository** — the Android launcher
+icon is still Flutter's default, and no hosted logo URL exists. The template
+therefore draws the brand identity in CSS (a rounded teal tile with a `T` next
+to the wordmark). This has one real advantage: it renders even when images are
+blocked, which is the default state of most inboxes.
+
+To use a bitmap logo instead:
+
+1. Upload the image to Supabase Storage as a **public** bucket object. The free
+   tier covers this.
+2. Copy its public URL — it will look like
+   `https://<project-ref>.supabase.co/storage/v1/object/public/<bucket>/<file>.png`.
+3. In `supabase/templates/magic_link.html`, uncomment the `<img>` block in the
+   header and replace `LOGO_URL` with that URL.
+4. Keep the `alt` text and the explicit `width`/`height`, and keep the CSS
+   fallback underneath. While images are blocked the `alt` shows instead of a
+   broken frame, and the layout does not collapse.
+
+Serve the logo at 2x the display size (about 84px for a 42px slot) so it stays
+sharp on high-density screens. Do not hotlink an image you do not control.
+
+## 12. Local development
 
 The local Supabase stack runs Mailpit at <http://127.0.0.1:54324>. Every outbound
 email is captured there. This works with no Mailjet account, but it is delivery
@@ -203,7 +333,7 @@ When the `MAILJET_*` secrets are not all set the backend logs an explicit warnin
 and reports `admin_email_sent: false` (or skips the user notice). It never
 reports success for a message it did not send.
 
-## 12. Outbound idempotency
+## 13. Outbound idempotency
 
 Resend accepted an `Idempotency-Key` header; Mailjet's Send API has no equivalent.
 The guarantee is kept in the database instead: a successful send is recorded in

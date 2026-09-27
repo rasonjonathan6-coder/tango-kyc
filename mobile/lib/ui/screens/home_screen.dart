@@ -5,11 +5,15 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/kyc_journey.dart';
 import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/auth_controller.dart';
 import '../../state/kyc_controller.dart';
+import '../../state/notifications_controller.dart';
+import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/modern.dart';
 import 'mvola_payment_screen.dart';
 import 'my_requests_screen.dart';
 import 'request_details_screen.dart';
@@ -33,9 +37,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<KycController>().load();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+  }
+
+  /// Loads the tickets and refreshes the notification badge from them.
+  Future<void> _refresh() async {
+    final kyc = context.read<KycController>();
+    await kyc.load();
+    if (!mounted) return;
+    context.read<NotificationsController>().sync(kyc.requests);
   }
 
   @override
@@ -124,9 +134,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
 
     return RefreshIndicator(
-      onRefresh: () => kyc.load(),
+      onRefresh: _refresh,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
+        padding: AppSpacing.page,
         children: [
           AnimatedEntry(
             child: Column(
@@ -144,7 +154,27 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: AppSpacing.lg),
+          if (kyc.requests.isNotEmpty)
+            AnimatedEntry(
+              delay: const Duration(milliseconds: 40),
+              child: StatusHero(
+                title: 'Your latest verification',
+                statusLabel: kyc.requests.first.status.label,
+                statusColor: AppTheme.statusColor(context, kyc.requests.first.status.wireValue),
+                subtitle: nextActionHint(kyc.requests.first.status),
+                step: currentStep(kyc.requests.first.status).position,
+                trailing: Text(
+                  kyc.requests.first.ticketCode,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppTheme.onHeroMuted,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ),
+          if (kyc.requests.isNotEmpty) const SizedBox(height: AppSpacing.md),
+          const _NotificationsSection(),
           if (_justCreated != null)
             AnimatedEntry(
               delay: const Duration(milliseconds: 60),
@@ -283,6 +313,77 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// Surfaces admin replies as in-app notifications.
+///
+/// The payload is derived from the caller's own tickets (already RLS-scoped), so
+/// no additional request is made. Tapping a notification opens the ticket and
+/// clears its badge.
+class _NotificationsSection extends StatelessWidget {
+  const _NotificationsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifications = context.watch<NotificationsController>();
+    final items = notifications.items;
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final shown = items.take(2).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AnimatedEntry(
+          delay: const Duration(milliseconds: 50),
+          child: SectionHeader(
+            title: 'Notifications',
+            icon: Icons.notifications_none_rounded,
+            action: notifications.hasUnread
+                ? TextButton(
+                    onPressed: notifications.markAllRead,
+                    child: const Text('Mark all read'),
+                  )
+                : null,
+          ),
+        ),
+        for (final item in shown)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: AnimatedEntry(
+              child: NotificationTile(
+                title: item.title,
+                body: item.preview,
+                ticketCode: item.ticketCode,
+                timestamp: formatDate(item.receivedAt),
+                unread: item.unread,
+                onTap: () async {
+                  final kyc = context.read<KycController>();
+                  final navigator = Navigator.of(context);
+                  await navigator.push(
+                    MaterialPageRoute(
+                      builder: (_) => RequestDetailsScreen(ticketId: item.ticketId),
+                    ),
+                  );
+                  await notifications.markRead(item.ticketId);
+                  await kyc.load();
+                },
+              ),
+            ),
+          ),
+        if (items.length > shown.length)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              '${items.length - shown.length} more in My Requests',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _SuccessCard extends StatelessWidget {
   const _SuccessCard({
     required this.ticket,
@@ -388,9 +489,12 @@ class _RecentRequests extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading && requests.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
-        child: Center(child: CircularProgressIndicator()),
+      return const Column(
+        children: [
+          SkeletonCard(),
+          SizedBox(height: AppSpacing.md),
+          SkeletonCard(lines: 2),
+        ],
       );
     }
 

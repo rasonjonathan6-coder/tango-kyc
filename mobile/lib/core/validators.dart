@@ -171,6 +171,15 @@ class ErrorMessages {
     if (lower.contains('email not confirmed')) {
       return 'Please confirm your email address before signing in.';
     }
+      // OTP verification failures. Supabase reports both an expired code and a
+      // wrong code as "token has expired or is invalid", and it must not disclose
+      // which, so the copy stays deliberately ambiguous.
+      if (lower.contains('token has expired') ||
+          lower.contains('otp_expired') ||
+          lower.contains('invalid token') ||
+          lower.contains('token is invalid')) {
+        return 'This code is incorrect or has expired. Request a new one.';
+      }
     if (lower.contains('invalid email') || lower.contains('unable to validate email')) {
       return 'Invalid email.';
     }

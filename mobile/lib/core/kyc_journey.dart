@@ -1,0 +1,63 @@
+/// Presentation logic for the KYC journey: which step the user is on, and how the
+/// status should be phrased on the dashboard.
+///
+/// Kept free of Flutter imports so it can be unit tested directly, and so the
+/// user-facing wording has a single source of truth shared by the dashboard, the
+/// detail screen and the history list.
+library;
+
+import '../models/models.dart';
+
+/// The four stages of a manual KYC request, in order.
+enum KycStep {
+  submitted,
+  payment,
+  review,
+  answer;
+
+  /// Human label shown in the journey timeline.
+  String get label => switch (this) {
+        KycStep.submitted => 'Request submitted',
+        KycStep.payment => 'MVola payment',
+        KycStep.review => 'Manual review',
+        KycStep.answer => 'Answer from support',
+      };
+
+  /// 1-based position, for progress display.
+  int get position => index + 1;
+
+  static const int total = 4;
+}
+
+/// A short, plain-language sentence describing what happens next.
+///
+/// Written so a user who knows nothing about the backend understands their
+/// situation from the dashboard alone.
+String nextActionHint(KycStatus status) => switch (status) {
+      KycStatus.pending =>
+        'Complete the MVola payment so your request can be reviewed.',
+      KycStatus.inReview => 'Support is reviewing your documents. No action needed.',
+      KycStatus.replied => 'Support replied. Open the ticket to read the message.',
+      KycStatus.closed => 'This request is closed. You can submit a new one if needed.',
+    };
+
+/// The furthest step reached for a given status.
+///
+/// The mapping is deliberately conservative: a payment is only considered
+/// confirmed once the status has moved past `pending`, because the app cannot see
+/// the payment decision while the request is still pending.
+KycStep currentStep(KycStatus status) => switch (status) {
+      KycStatus.pending => KycStep.payment,
+      KycStatus.inReview => KycStep.review,
+      KycStatus.replied => KycStep.answer,
+      KycStatus.closed => KycStep.answer,
+    };
+
+/// Whether a given step is complete for a status.
+bool isStepDone(KycStatus status, KycStep step) => step.index <= currentStep(status).index;
+
+/// Builds the ordered timeline for a status, ready to render.
+List<({String label, bool done})> journeyFor(KycStatus status) => [
+      for (final step in KycStep.values)
+        (label: step.label, done: isStepDone(status, step)),
+    ];

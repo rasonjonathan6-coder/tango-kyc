@@ -23,9 +23,11 @@ import 'state/admin_mvola_controller.dart';
 import 'state/auth_controller.dart';
 import 'state/kyc_controller.dart';
 import 'state/mvola_controller.dart';
+import 'state/notifications_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/app_shell.dart';
 import 'ui/screens/login_screen.dart';
+import 'ui/screens/onboarding_screen.dart';
 import 'ui/screens/reset_password_screen.dart';
 import 'ui/screens/splash_screen.dart';
 import 'ui/theme/app_theme.dart';
@@ -74,6 +76,7 @@ class TangoKycApp extends StatelessWidget {
         ChangeNotifierProvider(
             create: (_) => AdminMvolaController(SupabaseAdminMvolaService(client))),
         ChangeNotifierProvider(create: (_) => SettingsController(storage)..load()),
+        ChangeNotifierProvider(create: (_) => NotificationsController(storage)..load()),
       ],
       child: Consumer<SettingsController>(
         builder: (context, settings, _) => MaterialApp(
@@ -162,7 +165,14 @@ class _RootGateState extends State<_RootGate> {
     if (!auth.initialized || _recovering) {
       return const SplashScreen();
     }
-    return auth.isSignedIn ? const AppShell() : const LoginScreen();
+    if (auth.isSignedIn) return const AppShell();
+
+    // First run shows onboarding once; afterwards users go straight to sign-in.
+    final settings = context.watch<SettingsController>();
+    if (!settings.onboardingDone) {
+      return OnboardingScreen(onFinished: settings.completeOnboarding);
+    }
+    return const LoginScreen();
   }
 }
 

@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/validators.dart';
+import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
+import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
+import 'otp_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -52,6 +55,23 @@ class _LoginScreenState extends State<LoginScreen> {
     final ok = await auth.signInWithGoogle();
     if (!mounted || ok) return;
     _showError(ErrorMessages.from(auth.lastError ?? ''));
+  }
+
+  /// Starts the passwordless code flow for the address typed above.
+  ///
+  /// The email field doubles as the destination, so the user is nudged to fill
+  /// it rather than being shown an empty second form.
+  Future<void> _startCodeSignIn() async {
+    final email = Validators.normalize(_emailController.text);
+    if (email.isEmpty || Validators.validateEmail(email) != null) {
+      _showError('Enter your email address above first.');
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OtpScreen(email: email, purpose: EmailOtpPurpose.signup),
+      ),
+    );
   }
 
   void _showError(String message) {
@@ -152,6 +172,28 @@ class _LoginScreenState extends State<LoginScreen> {
                           const Expanded(child: Divider()),
                         ],
                       ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'Prefer a code?',
+                              style: theme.textTheme.bodyMedium,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Flexible(
+                            child: TextButton(
+                              onPressed: auth.busy ? null : _startCodeSignIn,
+                              child: const Text(
+                                'Sign in with a code',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
                         onPressed: auth.busy ? null : _google,
@@ -195,15 +237,24 @@ class _Header extends StatelessWidget {
     return Column(
       children: [
         Container(
-          height: 68,
-          width: 68,
+          height: 76,
+          width: 76,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(20),
+            gradient: AppTheme.heroGradient(theme.brightness),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: theme.brightness == Brightness.dark
+                ? null
+                : const [
+                    BoxShadow(
+                      color: Color(0x2A2F6B5F),
+                      blurRadius: 20,
+                      offset: Offset(0, 9),
+                    ),
+                  ],
           ),
-          child: Icon(Icons.verified_user_rounded, size: 36, color: theme.colorScheme.onPrimaryContainer),
+          child: const Icon(Icons.verified_user_rounded, size: 38, color: AppTheme.onHero),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 22),
         Text(
           'Tango KYC Verification',
           textAlign: TextAlign.center,

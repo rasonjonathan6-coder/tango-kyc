@@ -3,6 +3,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key, this.message});
 
@@ -23,16 +25,25 @@ class SplashScreen extends StatelessWidget {
               curve: Curves.easeOutBack,
               builder: (context, value, child) => Transform.scale(scale: value, child: child),
               child: Container(
-                height: 84,
-                width: 84,
+                height: 92,
+                width: 92,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(24),
+                  gradient: AppTheme.heroGradient(theme.brightness),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: theme.brightness == Brightness.dark
+                      ? null
+                      : const [
+                          BoxShadow(
+                            color: Color(0x332F6B5F),
+                            blurRadius: 26,
+                            offset: Offset(0, 12),
+                          ),
+                        ],
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.verified_user_rounded,
-                  size: 44,
-                  color: theme.colorScheme.onPrimaryContainer,
+                  size: 46,
+                  color: AppTheme.onHero,
                 ),
               ),
             ),

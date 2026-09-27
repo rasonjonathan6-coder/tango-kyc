@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/auth_controller.dart';
+import '../state/notifications_controller.dart';
 import 'screens/admin_dashboard_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/my_requests_screen.dart';
@@ -25,6 +26,9 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isAdmin = context.watch<AuthController>().isAdmin;
+    // Unread replies are derived from the user's own tickets, so the badge only
+    // ever reflects data the server already scoped to this account.
+    final unread = context.watch<NotificationsController>().unreadCount;
     // The admin tab is only offered when the server-reported role says so. The
     // backend re-checks the role on every admin call regardless of the UI.
     final destinations = <_Destination>[
@@ -58,8 +62,18 @@ class _AppShellState extends State<AppShell> {
         destinations: [
           for (final destination in destinations)
             NavigationDestination(
-              icon: Icon(destination.icon),
-              selectedIcon: Icon(destination.selectedIcon),
+              icon: destination.label == 'Home' && unread > 0
+                  ? Badge.count(
+                      count: unread,
+                      child: Icon(destination.icon),
+                    )
+                  : Icon(destination.icon),
+              selectedIcon: destination.label == 'Home' && unread > 0
+                  ? Badge.count(
+                      count: unread,
+                      child: Icon(destination.selectedIcon),
+                    )
+                  : Icon(destination.selectedIcon),
               label: destination.label,
             ),
         ],

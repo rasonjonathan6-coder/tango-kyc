@@ -15,6 +15,8 @@ class FakeAuthService implements AuthService {
     this.failWith,
     this.profile = const Profile(id: 'fake-user', email: 'user@example.com', role: 'user'),
     this.callbackOutcome = AuthCallbackOutcome.signedIn,
+    this.acceptedOtp = '12345678',
+    this.otpSendFails = false,
   });
 
   /// When set, every action throws [AuthException] carrying this message.
@@ -24,11 +26,24 @@ class FakeAuthService implements AuthService {
   /// Returned by [handleAuthCallback]; lets tests exercise recovery routing.
   final AuthCallbackOutcome callbackOutcome;
 
+  /// The only code [verifyEmailOtp] accepts. Any other value throws, mirroring
+  /// Supabase's rejection of an invalid or expired token.
+  final String acceptedOtp;
+
+  /// Fails only the OTP send, so a test can reach the entry screen with a code
+  /// request that the server refused.
+  final bool otpSendFails;
+
   int signInCalls = 0;
   int signUpCalls = 0;
   int resetCalls = 0;
   int googleCalls = 0;
+  int otpSendCalls = 0;
+  int otpResendCalls = 0;
+  int otpVerifyCalls = 0;
   String? lastEmail;
+  String? lastOtpToken;
+  EmailOtpPurpose? lastOtpPurpose;
 
   @override
   Session? get session => null;
@@ -78,6 +93,42 @@ class FakeAuthService implements AuthService {
   @override
   Future<void> resendConfirmation(String email) async {
     _maybeFail();
+  }
+
+  @override
+  Future<void> sendEmailOtp(String email, EmailOtpPurpose purpose) async {
+    otpSendCalls += 1;
+    lastEmail = email;
+    lastOtpPurpose = purpose;
+    _maybeFail();
+    if (otpSendFails) {
+      throw const AuthException('over_email_send_rate_limit');
+    }
+  }
+
+  @override
+  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) async {
+    otpResendCalls += 1;
+    lastEmail = email;
+    lastOtpPurpose = purpose;
+    _maybeFail();
+  }
+
+  @override
+  Future<void> verifyEmailOtp({
+    required String email,
+    required String token,
+    required EmailOtpPurpose purpose,
+  }) async {
+    otpVerifyCalls += 1;
+    lastEmail = email;
+    lastOtpToken = token;
+    lastOtpPurpose = purpose;
+    _maybeFail();
+    // Supabase reports a wrong code and an expired code identically.
+    if (token != acceptedOtp) {
+      throw const AuthException('Token has expired or is invalid');
+    }
   }
 
   @override

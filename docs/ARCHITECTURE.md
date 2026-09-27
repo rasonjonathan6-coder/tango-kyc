@@ -12,15 +12,16 @@ Flutter (Android)  ──HTTPS──▶  Supabase
                                           │  ▲
                             outbound mail │  │ signed webhook
                                           ▼  │
-                                 Mailjet ─┘  └─ Resend (inbound)
+                                 Resend ─┘  └─ Resend (inbound)
                                           ▲
                                  Admin replies from Gmail
 ```
 
-Mail is split by direction: Mailjet sends the admin notification and the user
-notice, while Resend receives the support reply and hands it to the
-`email-webhook` function. The `Reply-To` on outbound mail points at the Resend
-inbound address, so the reply path is unaffected by which provider sent it.
+Mail is split by direction, and both directions are Resend. The outbound side
+sends the admin notification and the user notice; the inbound side receives the
+support reply and hands it to the `email-webhook` function. The `Reply-To` on
+outbound mail points at the Resend inbound address, so the reply path does not
+depend on which provider sent the mail.
 
 The Flutter app holds the publishable anon key only. That key is not a secret in
 the usual sense: every row it can reach is filtered by Row Level Security. Any
@@ -99,11 +100,34 @@ detection rules are later refined.
 
 ## Manual MVola payments
 
-Payment is a separate, additive concern from KYC. A ticket does not depend on a
-payment, and no existing KYC, email or admin path was changed to introduce it.
+Payment and ticket creation are independent; the admin notification is not.
+
+A ticket is created whether or not a payment exists, and a payment is created
+against an existing ticket. Neither step requires the other. The one place the
+two meet is the email to the administration:
+
+- **Ticket creation never waits for a payment.** Submitting the form creates the
+  ticket in `pending` and returns immediately. No mail is sent from
+  `create-kyc-request`.
+- **The admin notification is gated on an approved payment.** The request is
+  emailed to the administration only after an admin approves the MVola payment.
+- **The gate is re-read from the database.** `notifyAdminOfApprovedRequest()`
+  calls `ticketPaymentApproved()`, which queries `mvola_payments` for a row with
+  `status = 'approved'` for that ticket. The decision in the request body is
+  never trusted, so a caller cannot unlock the email by claiming approval.
+- **A failed send changes nothing else.** If the provider refuses the mail, the
+  payment stays approved and the ticket stays as it was. The failure is reported
+  as `admin_notified: false` rather than raising, so an admin is never told an
+  approval failed when it in fact succeeded.
 
 ```
-User picks a ticket
+User submits the KYC form
+        │
+        ▼
+create-kyc-request  →  create_kyc_request()  →  ticket: pending
+        │                                          no email is sent
+        ▼
+User picks the ticket and pays
         │
         ▼
 POST mvola-payments { action: start, ticket_id }
@@ -117,7 +141,7 @@ POST mvola-payments { action: submit, payment_id, transaction_reference }
         │  mvola_submit_payment()  (security definer)
         ▼
 pending + submitted_at          the app now shows "awaiting verification"
-        │
+        │                          still no email: a submission is not an approval
         ▼
 admin opens the queue, checks the reference against the MVola statement
         │
@@ -125,8 +149,17 @@ admin opens the queue, checks the reference against the MVola statement
 POST admin-actions { action: mvola_decision }   admin_mvola_set_decision()
         │
         ├── approved   final; the ticket can never open another payment
+        │              → ticketPaymentApproved() re-reads the row
+        │              → sendAdminRequestNotification() emails the administration
+        │              → a send failure is reported, never raised
         └── rejected   records a reason; the user may start a corrected payment
+                       → no email is sent
 ```
+
+The ticket's own `status` is untouched by any of this: an approved payment does
+not move the ticket out of `pending`. Payment state and KYC state are separate
+columns that happen to be read together when deciding whether to notify the
+administration.
 
 Three properties are enforced in the database rather than in the client:
 
@@ -199,9 +232,14 @@ initial status is always `pending` and is set by the server.
 ## Free-tier fit
 
 - Supabase free tier: 500 MB database, 5 GB egress, Edge Functions included.
-- Mailjet free tier: 200 emails/day (outbound), 1,500 contacts.
-- Resend free tier: 3,000 emails/month, inbound receiving included.
+- Resend free tier: 3,000 emails/month, 100/day, inbound receiving included.
+  Both directions use this one provider and one key.
 - No VPS, no always-on container, no paid compute.
+
+With the default `onboarding@resend.dev` sender, Resend only delivers to the
+address that owns the Resend account; any other recipient is refused with HTTP
+403. Until a domain is verified, outbound mail reaches the account owner only.
+Sending to arbitrary addresses needs a verified domain on the sending side.
 
 Embedded images in an admin reply are not inlined into the app; only the cleaned
 text is stored. That keeps storage and bandwidth well inside the free tier.

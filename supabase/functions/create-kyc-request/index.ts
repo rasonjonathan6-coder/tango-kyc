@@ -1,22 +1,18 @@
 /**
  * POST /functions/v1/create-kyc-request
  *
- * Authenticated endpoint that creates a manual KYC verification ticket and
- * notifies the admin by email.
+ * Authenticated endpoint that creates a manual KYC verification ticket.
+ *
+ * No email is sent from here: the request may still be awaiting payment, and
+ * the administration is only notified once an admin approves that payment
+ * (see `admin-actions`).
  *
  * The client only ever supplies the profile link and the register value.
  * Ownership, ticket code, status and rate limiting are all decided server side.
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
 import { requireUser, serviceClient } from "../_shared/clients.ts";
-import {
-  adminEmail,
-  emailSendingConfigured,
-  escapeHtml,
-  plain,
-  replyToAddress,
-  sendEmail,
-} from "../_shared/email-provider.ts";
+
 
 interface RequestBody {
   tango_profile_link?: unknown;
@@ -82,11 +78,14 @@ Deno.serve(async (req) => {
       last_reply_at: string | null;
     };
 
-    // Whether this call created a new ticket or returned an existing duplicate,
-    // the admin email is only sent for genuinely new tickets. A deduplicated
-    // response within a few seconds of creation means this is the same intent.
+    // The administration is deliberately NOT notified here. A new request can
+    // still be awaiting payment, and KYC processing mail must not go out until
+    // an admin has approved that payment. `admin-actions` sends the request to
+    // the admin mailbox at the moment the payment is approved.
+    //
+    // `duplicated` still reports whether this call reused an existing ticket
+    // (the SQL deduplicates an identical re-submission within the window).
     const isFresh = Date.now() - new Date(ticket.created_at).getTime() < 10_000;
-    const emailSent = isFresh ? await notifyAdmin(ticket) : false;
 
     return jsonResponse({
       ticket: {
@@ -100,7 +99,7 @@ Deno.serve(async (req) => {
         last_reply_at: ticket.last_reply_at,
       },
       duplicated: !isFresh,
-      email_sent: emailSent,
+      email_sent: false,
     }, 201);
   } catch (error) {
     return errorResponse(error);
@@ -115,86 +114,3 @@ type Ticket = {
   register_value: string;
   reply_token: string;
 };
-
-/**
- * Sends the admin notification. Returns false when email is not configured so
- * the caller can be explicit about it rather than pretending it was delivered.
- */
-async function notifyAdmin(ticket: Ticket): Promise<boolean> {
-  if (!emailSendingConfigured()) {
-    console.warn(
-      "MAILJET_API_KEY/MAILJET_SECRET_KEY/MAILJET_FROM_EMAIL are not fully configured: ticket %s was created but the admin email was NOT sent.",
-      ticket.ticket_code,
-    );
-    return false;
-  }
-
-  const registerLine = ticket.register_type === "email"
-    ? `Register email: ${plain(ticket.register_value)}`
-    : `Register number: ${plain(ticket.register_value)}`;
-
-  const subject =
-    `Manual KYC Verification request - Profil Creator (${plain(ticket.tango_profile_link)}) [${ticket.ticket_code}]`;
-
-  const text = [
-    "Hello support tango team,",
-    "",
-    "I am requesting a manual review of my identity verification (KYC).",
-    "",
-    "I have valid official government documents ready for submission to prove my identity.",
-    "",
-    "My account information:",
-    "",
-    `Tango profile ID: ${plain(ticket.tango_profile_link)}`,
-    registerLine,
-    "",
-    "Send me the link for my verification.",
-    "",
-    "Please restart a manual review of my verification status.",
-    "",
-    "Thank you.",
-    "",
-    `Ticket ID: ${ticket.ticket_code}`,
-  ].join("\n");
-
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
-<p>Hello support tango team,</p>
-<p>I am requesting a manual review of my identity verification (KYC).</p>
-<p>I have valid official government documents ready for submission to prove my identity.</p>
-<p><strong>My account information:</strong></p>
-<p>Tango profile ID: ${escapeHtml(ticket.tango_profile_link)}<br>
-${ticket.register_type === "email" ? "Register email" : "Register number"}: ${escapeHtml(ticket.register_value)}</p>
-<p>Send me the link for my verification.</p>
-<p>Please restart a manual review of my verification status.</p>
-<p>Thank you.</p>
-<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
-<p style="color:#6b7280"><strong>Ticket ID:</strong> ${escapeHtml(ticket.ticket_code)}</p>
-</div>`;
-
-  const result = await sendEmail({
-    to: adminEmail(),
-    subject,
-    text,
-    html,
-    replyTo: replyToAddress(ticket.ticket_code, ticket.reply_token),
-    idempotencyKey: `kyc-admin-${ticket.ticket_code}`,
-  });
-
-  // Store the outbound provider id so a threaded reply can be matched even when
-  // the admin removes the ticket code from the subject. A suppressed send
-  // carries no id, so the previously recorded one is left untouched.
-  if (result.suppressed || !result.id) {
-    return true;
-  }
-
-  const admin = serviceClient();
-  const { error } = await admin.rpc("record_outbound_email", {
-    p_ticket_id: ticket.id,
-    p_provider_message_id: result.id,
-  });
-  if (error) {
-    console.error("Could not record outbound email id for %s: %s", ticket.ticket_code, error.message);
-  }
-
-  return true;
-}

@@ -10,9 +10,14 @@ class SettingsController extends ChangeNotifier {
   final FlutterSecureStorage _storage;
 
   static const _themeKey = 'settings.theme_mode';
+  static const _onboardingKey = 'settings.onboarding_done';
 
   ThemeMode _themeMode = ThemeMode.system;
   ThemeMode get themeMode => _themeMode;
+
+  /// Whether the first-run onboarding has been completed or skipped.
+  bool _onboardingDone = false;
+  bool get onboardingDone => _onboardingDone;
 
   Future<void> load() async {
     final stored = await _storage.read(key: _themeKey);
@@ -21,6 +26,7 @@ class SettingsController extends ChangeNotifier {
       'light' => ThemeMode.light,
       _ => ThemeMode.system,
     };
+    _onboardingDone = await _storage.read(key: _onboardingKey) == 'true';
     notifyListeners();
   }
 
@@ -35,5 +41,12 @@ class SettingsController extends ChangeNotifier {
         ThemeMode.system => 'system',
       },
     );
+  }
+
+  /// Records that onboarding has been seen, so it is not shown again.
+  Future<void> completeOnboarding() async {
+    _onboardingDone = true;
+    notifyListeners();
+    await _storage.write(key: _onboardingKey, value: 'true');
   }
 }
