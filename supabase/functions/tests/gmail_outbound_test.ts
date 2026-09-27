@@ -11,7 +11,6 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-  assertNotIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   base64UrlEncode,
@@ -30,6 +29,15 @@ import {
   sendGmailMessage,
   toRecipients,
 } from "../_shared/gmail-outbound.ts";
+
+/// Negated `assertStringIncludes`: std's assert module has no such helper, and
+/// these tests only need to prove a secret never appears in a URL, header or
+/// error message.
+function assertNotIncludes(actual: string, expected: string, msg?: string): void {
+  if (actual.includes(expected)) {
+    throw new Error(msg ?? `Expected the string not to include ${JSON.stringify(expected)}`);
+  }
+}
 import { AppError } from "../_shared/http.ts";
 
 const CREDS: GmailCredentials = {
