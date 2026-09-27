@@ -7,7 +7,14 @@
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
 import { requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
-import { emailSendingConfigured, sendEmail } from "../_shared/email-provider.ts";
+import {
+  emailSendingConfigured,
+  sendAdminRequestNotification,
+  sendEmail,
+  ticketPaymentApproved,
+  userReplyRecipient,
+} from "../_shared/email-provider.ts";
+import type { TicketForAdminNotification } from "../_shared/email-provider.ts";
 
 const STATUSES = ["pending", "in_review", "replied", "closed"] as const;
 type Status = (typeof STATUSES)[number];
@@ -151,7 +158,16 @@ Deno.serve(async (req) => {
           p_reason: reason || null,
         });
         if (error) throw translateDbError(error);
-        return jsonResponse({ payment: data });
+
+        // An approval is the moment the request becomes authorised for KYC
+        // processing, so this is where the administration is finally notified.
+        // A rejection sends nothing.
+        let adminNotified = false;
+        if (payload.decision === "approved") {
+          adminNotified = await notifyAdminOfApprovedRequest(data.ticket_id as string);
+        }
+
+        return jsonResponse({ payment: data, admin_notified: adminNotified });
       }
 
       default:
@@ -162,7 +178,59 @@ Deno.serve(async (req) => {
   }
 });
 
-/** Emails the ticket owner when the admin replies from the dashboard. */
+/**
+ * Sends the approved request to the administration mailbox.
+ *
+ * Called only after an admin approved the payment. The approval is re-read from
+ * the database rather than trusted from the request, so the email gate cannot be
+ * bypassed by a caller that merely claims the payment was approved.
+ */
+async function notifyAdminOfApprovedRequest(ticketId: string): Promise<boolean> {
+  const admin = serviceClient();
+
+  if (!await ticketPaymentApproved(ticketId)) {
+    console.warn("KYC request for ticket %s is not payment-approved; no email sent.", ticketId);
+    return false;
+  }
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket) {
+    console.error("Could not load ticket %s for admin notification: %s", ticketId, error?.message);
+    return false;
+  }
+
+  try {
+    return await sendAdminRequestNotification(ticket as TicketForAdminNotification);
+  } catch (error) {
+    // The payment decision is already committed, so a failed notification must
+    // not fail the admin's action: reporting 502 here would tell the admin the
+    // approval did not happen when it did. The failure is surfaced as
+    // `admin_notified: false` instead.
+    console.error(
+      "Could not notify the admin for ticket %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
+}
+
+/**
+ * Emails the ticket owner when an admin posts a reply.
+ *
+ * The recipient is `kyc_requests.register_value` — the Tango registration email
+ * the user supplied in the KYC form (`tango_registration_email`), and the address
+ * the external company was told about. It is deliberately NOT `profiles.email`,
+ * which is only the account/login address for this application.
+ *
+ * A phone-only requester is never sent mail: `register_value` also accepts a
+ * phone number, and no address is invented from it.
+ */
 async function notifyOwner(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
   const { data: ticket, error } = await admin
@@ -175,24 +243,45 @@ async function notifyOwner(ticketId: string): Promise<boolean> {
     console.error("Could not load ticket %s for owner notification: %s", ticketId, error?.message);
     return false;
   }
-  if (ticket.register_type !== "email") return false;
-  if (!emailSendingConfigured()) {
-    console.warn("Mailjet is not fully configured: owner of %s was not emailed.", ticket.ticket_code);
+
+  const { recipient, reason } = userReplyRecipient(ticket);
+  if (!recipient) {
+    console.warn(
+      "Ticket %s: %s; the owner was not emailed.",
+      ticket.ticket_code,
+      reason,
+    );
     return false;
   }
 
-  await sendEmail({
-    to: ticket.register_value,
-    subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
-    text: [
-      "Your Tango KYC verification request has received a new response.",
-      "",
-      `Ticket ID: ${ticket.ticket_code}`,
-      "",
-      "Please open the Tango KYC Verification application to view the response.",
-    ].join("\n"),
-    idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${ticket.register_value}`,
-  });
+  if (!emailSendingConfigured()) {
+    console.warn("Resend is not configured: owner of %s was not emailed.", ticket.ticket_code);
+    return false;
+  }
+
+  try {
+    await sendEmail({
+      to: recipient,
+      subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
+      text: [
+        "Your Tango KYC verification request has received a new response.",
+        "",
+        `Ticket ID: ${ticket.ticket_code}`,
+        "",
+        "Please open the Tango KYC Verification application to view the response.",
+      ].join("\n"),
+      idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${recipient}`,
+    });
+  } catch (error) {
+    // The reply is already stored and visible in the dashboard, so a failed
+    // notification must not fail the admin's action. It is reported instead.
+    console.error(
+      "Could not notify the owner of %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
 
   return true;
 }

@@ -14,7 +14,12 @@ import { AppError, errorResponse, handlePreflight, jsonResponse } from "../_shar
 import { env, serviceClient } from "../_shared/clients.ts";
 import { verifySvixSignature } from "../_shared/svix.ts";
 import { extractCleanReplyBody, sanitizeForStorage } from "../_shared/email-body.ts";
-import { fetchReceivedEmail, emailSendingConfigured, sendEmail } from "../_shared/email-provider.ts";
+import {
+  emailSendingConfigured,
+  fetchReceivedEmail,
+  sendEmail,
+  userReplyRecipient,
+} from "../_shared/email-provider.ts";
 
 const PROVIDER = "resend";
 
@@ -198,9 +203,16 @@ Deno.serve(async (req) => {
 });
 
 /**
- * Emails the ticket owner when they supplied an email address. A phone-only
- * requester is never assigned an invented address; the message stays in the
- * dashboard.
+ * Emails the ticket owner when a reply arrives by email.
+ *
+ * The recipient is `kyc_requests.register_value` — the Tango registration email
+ * the user typed into the KYC form, also known as `tango_registration_email`.
+ * That is the address the external company was told about, so it is where the
+ * reply belongs. It is deliberately NOT `profiles.email`, which is only the
+ * account/login address for Tango KYC Verification itself.
+ *
+ * `register_value` may also hold a phone number, in which case no mail is sent
+ * and the reply stays in the dashboard: an address is never invented.
  */
 async function notifyUser(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
@@ -216,13 +228,19 @@ async function notifyUser(ticketId: string): Promise<boolean> {
     return false;
   }
 
-  if (ticket.register_type !== "email") {
+  const { recipient, reason } = userReplyRecipient(ticket);
+  if (!recipient) {
+    console.warn(
+      "Ticket %s: %s; the reply stays in the dashboard.",
+      ticket.ticket_code,
+      reason,
+    );
     return false;
   }
 
   if (!emailSendingConfigured()) {
     console.warn(
-      "Mailjet is not fully configured: reply for %s was stored but the user was NOT emailed.",
+      "Resend is not configured: reply for %s was stored but the user was NOT emailed.",
       ticket.ticket_code,
     );
     return false;
@@ -236,12 +254,23 @@ async function notifyUser(ticketId: string): Promise<boolean> {
     "Please open the Tango KYC Verification application to view the response.",
   ].join("\n");
 
-  await sendEmail({
-    to: ticket.register_value,
-    subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
-    text,
-    idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${ticket.register_value}`,
-  });
+  try {
+    await sendEmail({
+      to: recipient,
+      subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
+      text,
+      idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${recipient}`,
+    });
+  } catch (error) {
+    // The reply is already stored, so a failed notification must not fail the
+    // webhook: the provider would retry the whole event otherwise.
+    console.error(
+      "Could not notify the owner of %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
 
   return true;
 }

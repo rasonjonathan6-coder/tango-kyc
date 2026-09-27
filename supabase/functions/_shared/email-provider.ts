@@ -1,31 +1,42 @@
 /**
  * Email delivery and receipt for the Tango KYC Edge Functions.
  *
- * OUTBOUND: Mailjet (Send API v3.1). See ./mailjet.ts.
+ * OUTBOUND: Resend (REST API). See ./resend-outbound.ts.
  * INBOUND:  Resend. `fetchReceivedEmail` below is unchanged and still uses
  *           EMAIL_API_KEY; the `email.received` webhook keeps working as before.
  *
  * `replyToAddress` deliberately keeps routing replies to the Resend inbound
- * address, so the existing reply-to-ticket association is untouched even though
- * the outbound message is now sent by a different provider.
+ * address, so the existing reply-to-ticket association is untouched.
  *
  * Docs verified against:
- *   https://dev.mailjet.com/docs/email-api/send-api-v31/send-basic-email
+ *   https://resend.com/docs/api-reference/emails/send-email
  *   https://resend.com/docs/dashboard/receiving/introduction
+ *   https://resend.com/docs/knowledge-base/403-error-resend-dev-domain
  */
 import { AppError } from "./http.ts";
 import { env, requireEnv, serviceClient } from "./clients.ts";
-import { sendMailjetMessage } from "./mailjet.ts";
+import { sendResendMessage } from "./resend-outbound.ts";
 
 const RESEND_API = "https://api.resend.com";
 
+/**
+ * Default sender used when RESEND_FROM_EMAIL is not set.
+ *
+ * This is Resend's shared sandbox sender. It needs no domain and no DNS
+ * records, but Resend only allows it to deliver to the address that owns the
+ * Resend account. Sending anywhere else returns HTTP 403 and the provider says
+ * so explicitly. Set RESEND_FROM_EMAIL to override it.
+ */
+const DEFAULT_RESEND_FROM = "onboarding@resend.dev";
+
 /** Provider tag for the outbound idempotency ledger. */
-const OUTBOUND_PROVIDER = "mailjet";
+const OUTBOUND_PROVIDER = "resend";
 const OUTBOUND_EVENT = "outbound.send";
 
 /**
- * How long a caller-supplied key suppresses a repeat send. Matches the 24 hour
- * window Resend applied to `Idempotency-Key`, which Mailjet does not offer.
+ * How long a caller-supplied key suppresses a repeat send. Resend applies the
+ * same 24 hour window to its `Idempotency-Key`, and the ledger mirrors it so the
+ * guarantee also holds when the provider is unreachable.
  */
 const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -38,8 +49,7 @@ export interface SendEmailArgs {
   headers?: Record<string, string>;
   /**
    * Caller-supplied dedup key. Enforced by this module through the
-   * `email_events` ledger, because Mailjet has no idempotency-key facility; it
-   * is also forwarded as Mailjet's `CustomID` for correlation.
+   * `email_events` ledger; it is also forwarded as Resend's `Idempotency-Key`.
    */
   idempotencyKey?: string;
 }
@@ -55,22 +65,32 @@ export interface SendEmailResult {
   suppressed?: boolean;
 }
 
-/** True when outbound email (Mailjet) is fully configured. */
+/**
+ * Resolves the Resend API key used for outbound sending.
+ *
+ * `RESEND_API_KEY` is preferred so outbound can later be scoped to its own
+ * credential. When it is absent the existing `EMAIL_API_KEY` is reused: it is
+ * already a Resend key (the inbound path uses it), so no new secret is invented
+ * and no value is ever hardcoded here.
+ */
+function outboundApiKey(): string {
+  return env("RESEND_API_KEY") || env("EMAIL_API_KEY");
+}
+
+/** True when outbound email (Resend) is fully configured. */
 export function emailSendingConfigured(): boolean {
-  return (
-    env("MAILJET_API_KEY").length > 0 &&
-    env("MAILJET_SECRET_KEY").length > 0 &&
-    env("MAILJET_FROM_EMAIL").length > 0
-  );
+  return outboundApiKey().length > 0;
 }
 
 /**
- * The validated Mailjet sender. There is deliberately no fallback: Mailjet
- * refuses any address that is not a validated sender, so a placeholder would
- * only turn a configuration mistake into a confusing delivery failure.
+ * The outbound sender.
+ *
+ * `RESEND_FROM_EMAIL` wins when set. Otherwise the Resend sandbox sender is
+ * used, which needs no verified domain — but note that Resend only permits it
+ * to deliver to the account owner's own address.
  */
 export function fromAddress(): string {
-  return env("MAILJET_FROM_EMAIL");
+  return env("RESEND_FROM_EMAIL") || DEFAULT_RESEND_FROM;
 }
 
 export function replyToAddress(ticketCode: string, replyToken: string): string {
@@ -87,6 +107,19 @@ export function replyToAddress(ticketCode: string, replyToken: string): string {
 
 export function adminEmail(): string {
   return env("ADMIN_EMAIL") || "rasonjonathan6@gmail.com";
+}
+
+/**
+ * The mailbox that receives the KYC request itself, once a payment is approved.
+ *
+ * This is a distinct role from `ADMIN_EMAIL`: that address is the administration
+ * identity (the human who replies), while this one is the intake inbox for KYC
+ * requests. They are frequently the same address, so the value falls back to
+ * `ADMIN_EMAIL` when unset, and either can be replaced in production through
+ * configuration alone — no code change.
+ */
+export function adminKycRecipient(): string {
+  return env("ADMIN_KYC_RECIPIENT") || adminEmail();
 }
 
 /** Escape a value for safe interpolation into a text email body. */
@@ -172,21 +205,20 @@ async function recordOutboundSend(key: string): Promise<void> {
 }
 
 /**
- * Sends a transactional email through Mailjet.
+ * Sends a transactional email through Resend.
  *
  * When `idempotencyKey` is supplied, a send already recorded within the
  * suppression window is skipped, so a retried call cannot produce a second
- * notification. Mailjet itself provides no idempotency-key facility, so the
- * guarantee is kept here through the `email_events` ledger.
+ * notification. The guarantee is kept here through the `email_events` ledger,
+ * and the key is additionally forwarded as Resend's `Idempotency-Key`.
  */
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
-  const apiKey = requireEnv("MAILJET_API_KEY");
-  const secretKey = requireEnv("MAILJET_SECRET_KEY");
-  const from = fromAddress();
-  if (!from) {
-    console.error("MAILJET_FROM_EMAIL is not configured");
-    throw new AppError("SERVICE_NOT_CONFIGURED", "MAILJET_FROM_EMAIL is not configured", 503);
+  const apiKey = outboundApiKey();
+  if (!apiKey) {
+    console.error("No Resend API key is configured (RESEND_API_KEY / EMAIL_API_KEY)");
+    throw new AppError("SERVICE_NOT_CONFIGURED", "Resend API key is not configured", 503);
   }
+  const from = fromAddress();
 
   if (args.idempotencyKey) {
     const recent = await findRecentSend(args.idempotencyKey);
@@ -196,7 +228,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     }
   }
 
-  const result = await sendMailjetMessage(
+  const result = await sendResendMessage(
     {
       from,
       to: args.to,
@@ -205,9 +237,9 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
       html: args.html,
       replyTo: args.replyTo,
       headers: args.headers,
-      customId: args.idempotencyKey,
+      idempotencyKey: args.idempotencyKey,
     },
-    { apiKey, secretKey },
+    apiKey,
   );
 
   if (args.idempotencyKey) {
@@ -215,6 +247,159 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   }
 
   return { id: result.id };
+}
+
+/**
+ * The recipient of a user-facing reply notification.
+ *
+ * The single source of truth for this rule: the Tango registration email the
+ * user typed into the KYC form (`register_value`, also called
+ * `tango_registration_email`). That is the address the external company was
+ * told about, so it is where a reply belongs.
+ *
+ * It is explicitly NOT `profiles.email` — that is only the account/login
+ * address for Tango KYC Verification itself, and it must never receive these
+ * replies. `register_value` also accepts a phone number, in which case there is
+ * no address to mail: nothing is sent and no address is invented.
+ */
+export function userReplyRecipient(ticket: {
+  register_type?: string | null;
+  register_value?: string | null;
+}): { recipient: string | null; reason: string } {
+  if (ticket.register_type !== "email") {
+    return {
+      recipient: null,
+      reason: `registered with a ${ticket.register_type ?? "unknown"} value, not an email`,
+    };
+  }
+  const email = String(ticket.register_value ?? "").trim();
+  if (!email) {
+    return { recipient: null, reason: "no registration email on the ticket" };
+  }
+  return { recipient: email, reason: "registration email" };
+}
+
+/**
+ * True only once an admin has *approved* a payment for the ticket.
+ *
+ * A submitted-but-unreviewed payment does not count. KYC processing mail stays
+ * silent until an admin has actually verified the transfer, so the gate is the
+ * `approved` status and never merely the existence of a payment row.
+ */
+export async function ticketPaymentApproved(ticketId: string): Promise<boolean> {
+  const admin = serviceClient();
+  const { data, error } = await admin
+    .from("mvola_payments")
+    .select("id")
+    .eq("ticket_id", ticketId)
+    .eq("status", "approved")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Could not read the payment state for ticket %s: %s", ticketId, error.message);
+    return false;
+  }
+  return Boolean((data as { id?: string } | null)?.id);
+}
+
+/** The ticket fields the admin notification needs. */
+export interface TicketForAdminNotification {
+  id: string;
+  ticket_code: string;
+  tango_profile_link: string;
+  register_type: "email" | "phone";
+  register_value: string;
+  reply_token: string;
+}
+
+/**
+ * Sends the KYC request to the administration mailbox.
+ *
+ * Only ever called once a payment is approved, so an unpaid request never
+ * reaches the admin inbox. The Tango profile link and the Tango registration
+ * value are informational fields in the body; the recipient is the configured
+ * admin address, never the user.
+ */
+export async function sendAdminRequestNotification(
+  ticket: TicketForAdminNotification,
+): Promise<boolean> {
+  if (!emailSendingConfigured()) {
+    console.warn(
+      "Resend is not configured: ticket %s was not sent to the admin.",
+      ticket.ticket_code,
+    );
+    return false;
+  }
+
+  const registerLine = ticket.register_type === "email"
+    ? `Register email: ${plain(ticket.register_value)}`
+    : `Register number: ${plain(ticket.register_value)}`;
+
+  const subject =
+    `Manual KYC Verification request - Profil Creator (${plain(ticket.tango_profile_link)}) [${ticket.ticket_code}]`;
+
+  const text = [
+    "Hello support tango team,",
+    "",
+    "I am requesting a manual review of my identity verification (KYC).",
+    "",
+    "I have valid official government documents ready for submission to prove my identity.",
+    "",
+    "My account information:",
+    "",
+    `Tango profile ID: ${plain(ticket.tango_profile_link)}`,
+    registerLine,
+    "",
+    "Send me the link for my verification.",
+    "",
+    "Please restart a manual review of my verification status.",
+    "",
+    "Thank you.",
+    "",
+    `Ticket ID: ${ticket.ticket_code}`,
+  ].join("\n");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
+<p>Hello support tango team,</p>
+<p>I am requesting a manual review of my identity verification (KYC).</p>
+<p>I have valid official government documents ready for submission to prove my identity.</p>
+<p><strong>My account information:</strong></p>
+<p>Tango profile ID: ${escapeHtml(ticket.tango_profile_link)}<br>
+${ticket.register_type === "email" ? "Register email" : "Register number"}: ${escapeHtml(ticket.register_value)}</p>
+<p>Send me the link for my verification.</p>
+<p>Please restart a manual review of my verification status.</p>
+<p>Thank you.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p style="color:#6b7280"><strong>Ticket ID:</strong> ${escapeHtml(ticket.ticket_code)}</p>
+</div>`;
+
+  const result = await sendEmail({
+    to: adminKycRecipient(),
+    subject,
+    text,
+    html,
+    replyTo: replyToAddress(ticket.ticket_code, ticket.reply_token),
+    idempotencyKey: `kyc-admin-${ticket.ticket_code}`,
+  });
+
+  // Store the outbound provider id so a threaded reply can be matched even when
+  // the admin removes the ticket code from the subject. A suppressed send
+  // carries no id, so the previously recorded one is left untouched.
+  if (result.suppressed || !result.id) {
+    return true;
+  }
+
+  const admin = serviceClient();
+  const { error } = await admin.rpc("record_outbound_email", {
+    p_ticket_id: ticket.id,
+    p_provider_message_id: result.id,
+  });
+  if (error) {
+    console.error("Could not record outbound email id for %s: %s", ticket.ticket_code, error.message);
+  }
+
+  return true;
 }
 
 export interface ReceivedEmail {
