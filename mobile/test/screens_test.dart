@@ -10,9 +10,14 @@ import 'package:provider/provider.dart';
 import 'package:tango_kyc_verification/core/validators.dart';
 import 'package:tango_kyc_verification/models/models.dart';
 import 'package:tango_kyc_verification/state/auth_controller.dart';
+import 'package:tango_kyc_verification/state/kyc_controller.dart';
+import 'package:tango_kyc_verification/state/notifications_controller.dart';
 import 'package:tango_kyc_verification/state/settings_controller.dart';
 import 'package:tango_kyc_verification/ui/screens/forgot_password_screen.dart';
+import 'package:tango_kyc_verification/ui/screens/home_screen.dart';
 import 'package:tango_kyc_verification/ui/screens/login_screen.dart';
+import 'package:tango_kyc_verification/ui/screens/otp_screen.dart';
+import 'package:tango_kyc_verification/ui/screens/register_screen.dart';
 import 'package:tango_kyc_verification/ui/screens/splash_screen.dart';
 import 'package:tango_kyc_verification/ui/widgets/common.dart';
 
@@ -51,11 +56,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Email'), findsOneWidget);
-      expect(find.text('Password'), findsOneWidget);
-      expect(find.text('Sign in'), findsOneWidget);
-      expect(find.text('Continue with Google'), findsOneWidget);
-      expect(find.text('Forgot password?'), findsOneWidget);
-      expect(find.text('Create an account'), findsOneWidget);
+      expect(find.text('Mot de passe'), findsOneWidget);
+      expect(find.text('Se connecter'), findsOneWidget);
+      expect(find.text('Continuer avec Google'), findsOneWidget);
+      expect(find.text('Mot de passe oublié ?'), findsOneWidget);
+      expect(find.text('Créer un compte'), findsOneWidget);
     });
 
     testWidgets('blocks submission when the email is invalid', (tester) async {
@@ -65,7 +70,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextFormField).first, 'not-an-email');
-      await tester.tap(find.text('Sign in'));
+      await tester.tap(find.text('Se connecter'));
       await tester.pumpAndSettle();
 
       expect(find.text('Please enter a valid email address.'), findsOneWidget);
@@ -80,10 +85,10 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextFormField).first, 'user@example.com');
-      await tester.tap(find.text('Sign in'));
+      await tester.tap(find.text('Se connecter'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Please enter your password.'), findsOneWidget);
+      expect(find.text('Veuillez saisir votre mot de passe.'), findsOneWidget);
       expect(service.signInCalls, 0);
     });
 
@@ -95,7 +100,7 @@ void main() {
 
       await tester.enterText(find.byType(TextFormField).first, 'user@example.com');
       await tester.enterText(find.byType(TextFormField).last, 'secretpassword');
-      await tester.tap(find.text('Sign in'));
+      await tester.tap(find.text('Se connecter'));
       await tester.pumpAndSettle();
 
       expect(service.signInCalls, 1);
@@ -110,7 +115,7 @@ void main() {
 
       await tester.enterText(find.byType(TextFormField).first, 'user@example.com');
       await tester.enterText(find.byType(TextFormField).last, 'wrongpassword');
-      await tester.tap(find.text('Sign in'));
+      await tester.tap(find.text('Se connecter'));
       await tester.pumpAndSettle();
 
       expect(find.text('Incorrect password.'), findsOneWidget);
@@ -125,6 +130,51 @@ void main() {
       await tester.tap(find.byIcon(Icons.visibility_off_rounded));
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.visibility_rounded), findsOneWidget);
+    });
+  });
+
+  group('RegisterScreen', () {
+    Future<void> fillValidForm(WidgetTester tester) async {
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(1), 'user@example.com');
+      await tester.enterText(fields.at(2), 'secretpassword');
+      await tester.enterText(fields.at(3), 'secretpassword');
+      await tester.tap(find.text('Create account'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('does not auto-send an email OTP after signup', (tester) async {
+      // Requesting a code overwrites the PKCE verifier stored by signUp, which
+      // breaks the confirmation link in the email (`bad_code_verifier`). The
+      // code path must not be offered from here at all.
+      final service = FakeAuthService();
+      final auth = AuthController(service);
+      await tester.pumpWidget(wrap(const RegisterScreen(), auth: auth));
+      await tester.pumpAndSettle();
+
+      await fillValidForm(tester);
+
+      expect(service.signUpCalls, 1);
+      expect(service.otpSendCalls, 0);
+      expect(find.text('Check your inbox'), findsOneWidget);
+      // The confirmation link is the only offered mechanism.
+      expect(find.text('Use a code instead'), findsNothing);
+      expect(find.text('Resend confirmation email'), findsOneWidget);
+    });
+
+    testWidgets('resending the confirmation does not request a code', (tester) async {
+      final service = FakeAuthService();
+      final auth = AuthController(service);
+      await tester.pumpWidget(wrap(const RegisterScreen(), auth: auth));
+      await tester.pumpAndSettle();
+
+      await fillValidForm(tester);
+      await tester.tap(find.text('Resend confirmation email'));
+      await tester.pumpAndSettle();
+
+      // Resend goes through `resendConfirmation`, never the OTP send path.
+      expect(service.otpSendCalls, 0);
+      expect(find.byType(OtpScreen), findsNothing);
     });
   });
 
@@ -213,6 +263,54 @@ void main() {
 
     test('date and time formatting is stable', () {
       expect(formatDateTime(DateTime(2026, 9, 25, 9, 5)), '25 September 2026 at 09:05');
+    });
+  });
+
+  group('HomeScreen MVola gate', () {
+    KycRequest ticket({required bool paymentRequired, required bool isSubmitted}) => KycRequest(
+          id: 't1',
+          ticketCode: 'TNG-1',
+          tangoProfileLink: 'https://tango.me/u/1',
+          registerType: RegisterType.email,
+          registerValue: 'a@b.com',
+          status: KycStatus.pending,
+          createdAt: DateTime(2026, 9, 25),
+          paymentRequired: paymentRequired,
+          isSubmitted: isSubmitted,
+        );
+
+    Widget wrapHome(FakeKycService service) => MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthController>.value(value: AuthController(FakeAuthService())),
+            ChangeNotifierProvider<KycController>.value(value: KycController(service)),
+            ChangeNotifierProvider<NotificationsController>.value(
+              value: NotificationsController(service),
+            ),
+          ],
+          child: const MaterialApp(home: Scaffold(body: HomeScreen())),
+        );
+
+    testWidgets('a request awaiting payment is asked to pay, never "sent"', (tester) async {
+      final service = FakeKycService(
+        requests: [ticket(paymentRequired: true, isSubmitted: false)],
+      );
+      await tester.pumpWidget(wrapHome(service));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Payer avec MVola'), findsOneWidget);
+      expect(find.textContaining('Complete the MVola payment'), findsOneWidget);
+      expect(find.textContaining('Support will review it shortly'), findsNothing);
+    });
+
+    testWidgets('a validated payment stops asking and reads as received', (tester) async {
+      final service = FakeKycService(
+        requests: [ticket(paymentRequired: true, isSubmitted: true)],
+      );
+      await tester.pumpWidget(wrapHome(service));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Payer avec MVola'), findsNothing);
+      expect(find.textContaining('Support will review it shortly'), findsOneWidget);
     });
   });
 }

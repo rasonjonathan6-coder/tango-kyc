@@ -1,9 +1,14 @@
-/// Ticket detail: full request metadata and the conversation with support.
+/// Ticket detail: request metadata, status history and the messages sent by the
+/// administration.
 ///
-/// Messages are rendered as plain text. The backend strips email headers,
-/// quoted history and technical signatures before storing a reply, and the body
-/// is never interpreted as markup, so no email raw content is shown here.
+/// There is deliberately **no reply box**: the flow is ADMIN -> USER only. The
+/// user can read messages but cannot post one, and the backend rejects any
+/// attempt regardless of the UI. Messages are rendered as plain text; the
+/// backend strips email headers, quoted history and signatures before storing a
+/// reply, and the body is never interpreted as markup.
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -11,7 +16,10 @@ import 'package:provider/provider.dart';
 import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/kyc_controller.dart';
+import '../../state/notifications_controller.dart';
+import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/modern.dart';
 import 'mvola_payment_screen.dart';
 
 class RequestDetailsScreen extends StatefulWidget {
@@ -24,13 +32,12 @@ class RequestDetailsScreen extends StatefulWidget {
 }
 
 class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
-  final _replyController = TextEditingController();
   final _scrollController = ScrollController();
 
   KycRequest? _request;
   List<TicketMessage> _messages = const [];
+  List<StatusHistoryEntry> _history = const [];
   bool _loading = true;
-  bool _sending = false;
   String? _error;
 
   @override
@@ -41,7 +48,6 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
 
   @override
   void dispose() {
-    _replyController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -55,13 +61,20 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
       final controller = context.read<KycController>();
       final request = await controller.requestById(widget.ticketId);
       final messages = await controller.messages(widget.ticketId);
+      final history = await controller.statusHistory(widget.ticketId);
+      // Ownership is now proven: requestById only returns a row RLS let us see,
+      // so reaching here means the ticket is ours. Clear its notifications now,
+      // which also drops the badge if this screen was opened from a push.
+      if (mounted) {
+        unawaited(context.read<NotificationsController>().markTicketRead(widget.ticketId));
+      }
       if (!mounted) return;
       setState(() {
         _request = request;
         _messages = messages;
+        _history = history;
         _loading = false;
       });
-      _scrollToBottom();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -71,42 +84,12 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
     }
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  Future<void> _send() async {
-    final body = _replyController.text.trim();
-    if (body.isEmpty) return;
-
-    setState(() => _sending = true);
-    try {
-      await context.read<KycController>().sendReply(widget.ticketId, body);
-      _replyController.clear();
-      await _load();
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ErrorMessages.from(error))),
-      );
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Request details'),
+        title: const Text('Détail de la demande'),
         actions: [
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded), tooltip: 'Refresh'),
         ],
@@ -122,18 +105,24 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   Widget _content() {
     final request = _request!;
     final theme = Theme.of(context);
+    // The synthetic welcome ticket shows only its read-only system message.
+    final isWelcome = request.registerValue == 'WELCOME';
 
-    return Column(
+    return ListView(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       children: [
-        Expanded(
-          child: ListView(
-            controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-            children: [
-              SummaryCard(
-                title: 'Request information',
-                trailing: StatusPill(status: request.status, compact: true),
-                children: [
+        SummaryCard(
+          title: isWelcome ? 'Bienvenue' : 'Informations de la demande',
+          trailing: isWelcome ? null : StatusPill(status: request.status, compact: true),
+          children: isWelcome
+              ? const [
+                  InfoRow(
+                    label: 'Type',
+                    value: 'Bienvenue',
+                  ),
+                ]
+              : [
                   InfoRow(label: 'Ticket ID', value: request.ticketCode),
                   InfoRow(
                     label: 'Profile Link',
@@ -147,95 +136,81 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                     ),
                   ),
                   InfoRow(label: request.registerType.label, value: request.registerValue),
-                  InfoRow(label: 'Status', value: request.status.label),
-                  InfoRow(label: 'Created', value: formatDate(request.createdAt)),
+                  InfoRow(label: 'Statut', value: request.status.label),
+                  InfoRow(label: 'Créée le', value: formatDate(request.createdAt)),
                   InfoRow(
-                    label: 'Last update',
-                    value: formatDateTime(request.lastReplyAt ?? request.updatedAt ?? request.createdAt),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => MvolaPaymentScreen(
-                          ticketId: request.id,
-                          ticketCode: request.ticketCode,
-                        ),
-                      ),
-                    ),
-                    icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),
-                    label: const Text('Pay with MVola'),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+                    label: 'Dernière mise à jour',
+                    value: formatDateTime(
+                        request.lastReplyAt ?? request.updatedAt ?? request.createdAt),
                   ),
                 ],
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'Conversation',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              if (_messages.isEmpty)
-                const Card(
-                  child: EmptyState(
-                    icon: Icons.forum_outlined,
-                    title: 'No messages yet',
-                    message: 'Support replies will appear here once they are received.',
-                  ),
-                )
-              else
-                for (final message in _messages)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _MessageBubble(message: message),
-                  ),
-            ],
-          ),
         ),
-        _replyBar(theme),
+        if (!isWelcome && request.paymentRequired && !request.isSubmitted) ...[
+          const SizedBox(height: AppSpacing.md),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MvolaPaymentScreen(
+                  ticketId: request.id,
+                  ticketCode: request.ticketCode,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),
+            label: const Text('Payer avec MVola'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+          ),
+        ],
+        if (_history.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const SectionHeader(title: 'Historique du statut', icon: Icons.timeline_rounded),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: JourneyTimeline(
+                steps: [
+                  for (final entry in _history)
+                    JourneyStep(
+                      label: entry.toStatus.label,
+                      detail: '${_actorLabel(entry.actorRole)} · '
+                          '${formatDateTime(entry.createdAt)}',
+                      done: true,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 22),
+        SectionHeader(
+          title: isWelcome ? 'Message' : 'Messages de l’administration',
+          icon: Icons.forum_outlined,
+        ),
+        const SizedBox(height: 12),
+        if (_messages.isEmpty)
+          const Card(
+            child: EmptyState(
+              icon: Icons.forum_outlined,
+              title: 'Aucun message',
+              message: 'Les messages de l’administration apparaîtront ici.',
+            ),
+          )
+        else
+          for (final message in _messages)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _MessageBubble(message: message),
+            ),
       ],
     );
   }
 
-  Widget _replyBar(ThemeData theme) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6))),
-          color: theme.colorScheme.surface,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _replyController,
-                minLines: 1,
-                maxLines: 4,
-                enabled: !_sending,
-                textInputAction: TextInputAction.newline,
-                decoration: const InputDecoration(
-                  hintText: 'Write a message to support...',
-                  contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            IconButton.filled(
-              onPressed: _sending ? null : _send,
-              icon: _sending
-                  ? const SizedBox(
-                      height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2))
-                  : const Icon(Icons.send_rounded),
-              tooltip: 'Send',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  String _actorLabel(String role) => switch (role) {
+        'admin' => 'Administration',
+        'user' => 'Vous',
+        _ => 'Système',
+      };
 }
 
 class _MessageBubble extends StatelessWidget {
@@ -246,39 +221,41 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isFromUser = message.senderType == SenderType.user;
+    final isAdmin = message.senderType == SenderType.admin;
     final isSystem = message.senderType == SenderType.system;
 
     if (isSystem) {
-      return Center(
+      return Card(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(
-            message.body,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline_rounded, size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message.body,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    final alignment = isFromUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    final bubbleColor = isFromUser
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7);
-    final textColor = isFromUser
-        ? theme.colorScheme.onPrimaryContainer
-        : theme.colorScheme.onSurface;
-
-    final maxWidth = MediaQuery.of(context).size.width * 0.82;
+    final bubbleColor = isAdmin
+        ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7)
+        : theme.colorScheme.primaryContainer;
 
     return Column(
-      crossAxisAlignment: alignment,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, right: 4, bottom: 4),
           child: Text(
-            '${isFromUser ? 'You' : 'Support'} · ${formatDateTime(message.createdAt)}',
+            '${isAdmin ? 'Administration' : 'Vous'} · ${formatDateTime(message.createdAt)}',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               fontSize: 11.5,
@@ -286,28 +263,25 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
         Align(
-          alignment: isFromUser ? Alignment.centerRight : Alignment.centerLeft,
+          alignment: Alignment.centerLeft,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
+            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: bubbleColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isFromUser ? 16 : 4),
-                  bottomRight: Radius.circular(isFromUser ? 4 : 16),
-                ),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                  bottomLeft: Radius.circular(4),
+                  bottomRight: Radius.circular(16),
                 ),
               ),
-              // Plain text only: email bodies are cleaned server side and are
-              // never rendered as markup.
-              child: SelectableText(
+              child: Text(
                 message.body,
-                style: theme.textTheme.bodyMedium?.copyWith(color: textColor, height: 1.45),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: isAdmin ? theme.colorScheme.onSurface : theme.colorScheme.onPrimaryContainer,
+                ),
               ),
             ),
           ),

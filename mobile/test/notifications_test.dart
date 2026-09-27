@@ -1,42 +1,55 @@
 /// Tests for the in-app notification layer and the KYC journey helper.
 ///
-/// These cover the presentation logic added for the dashboard: unread counting,
-/// read persistence, and the step mapping. The notification layer derives from
-/// already-validated ticket data, so the tests exercise real code paths rather
-/// than mocks of a network call.
+/// The notification layer is server-backed: rows come from the caller's own
+/// `notifications` feed (RLS-scoped), and read state is persisted server side.
+/// These tests drive the real controller against an offline fake service, so
+/// no network and no mocks of the HTTP layer are involved.
 library;
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tango_kyc_verification/core/kyc_journey.dart';
 import 'package:tango_kyc_verification/models/models.dart';
 import 'package:tango_kyc_verification/state/notifications_controller.dart';
 
-KycRequest _request({
+import 'fakes.dart';
+
+NotificationItem _item({
   required String id,
-  required String code,
-  required KycStatus status,
-  DateTime? lastReplyAt,
+  String type = 'status_changed',
+  String? ticketId,
+  DateTime? readAt,
+  DateTime? createdAt,
 }) =>
-    KycRequest(
+    NotificationItem(
       id: id,
-      ticketCode: code,
-      tangoProfileLink: 'https://tango.me/$id',
-      registerType: RegisterType.email,
-      registerValue: 'user@example.com',
-      status: status,
-      createdAt: DateTime(2026, 9, 1),
-      updatedAt: DateTime(2026, 9, 2),
-      lastReplyAt: lastReplyAt,
+      type: type,
+      title: 'Titre',
+      body: 'Contenu',
+      createdAt: createdAt ?? DateTime(2026, 9, 25),
+      ticketId: ticketId,
+      readAt: readAt,
     );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('journey helper', () {
-    test('pending maps to the payment step', () {
-      expect(currentStep(KycStatus.pending), KycStep.payment);
-      expect(currentStep(KycStatus.pending).position, 2);
+    test('pending stays at the submission step until the payment is validated', () {
+      // Created, payment owed, not yet validated: the request is not submitted.
+      expect(
+        currentStep(KycStatus.pending, paymentRequired: true),
+        KycStep.submitted,
+      );
+      expect(currentStep(KycStatus.pending, paymentRequired: true).position, 1);
+      // Payment validated: it has been officially submitted and is in review.
+      expect(
+        currentStep(KycStatus.pending, paymentRequired: true, isSubmitted: true),
+        KycStep.review,
+      );
+      expect(currentStep(KycStatus.pending, paymentRequired: true, isSubmitted: true).position, 3);
+      // A pending ticket that owes nothing has already been submitted.
+      expect(currentStep(KycStatus.pending), KycStep.submitted);
+      expect(currentStep(KycStatus.pending).position, 1);
     });
 
     test('each later status advances the step', () {
@@ -46,15 +59,29 @@ void main() {
     });
 
     test('steps up to the current one are done', () {
-      expect(isStepDone(KycStatus.pending, KycStep.submitted), isTrue);
-      expect(isStepDone(KycStatus.pending, KycStep.payment), isTrue);
-      expect(isStepDone(KycStatus.pending, KycStep.review), isFalse);
+      expect(isStepDone(KycStatus.pending, KycStep.submitted, paymentRequired: true), isTrue);
+      // Unpaid: the payment step is not done and review has not started.
+      expect(isStepDone(KycStatus.pending, KycStep.payment, paymentRequired: true), isFalse);
+      expect(isStepDone(KycStatus.pending, KycStep.review, paymentRequired: true), isFalse);
+      expect(isStepDone(KycStatus.pending, KycStep.payment), isFalse);
+      // Paid and validated: every step up to review is done.
+      expect(
+        isStepDone(KycStatus.pending, KycStep.payment, paymentRequired: true, isSubmitted: true),
+        isTrue,
+      );
+      expect(
+        isStepDone(KycStatus.pending, KycStep.review, paymentRequired: true, isSubmitted: true),
+        isTrue,
+      );
+      expect(
+        isStepDone(KycStatus.pending, KycStep.answer, paymentRequired: true, isSubmitted: true),
+        isFalse,
+      );
     });
 
     test('journeyFor returns every step in order', () {
       final journey = journeyFor(KycStatus.replied);
       expect(journey.length, KycStep.total);
-      expect(journey.first.label, 'Request submitted');
       expect(journey.every((step) => step.done), isTrue);
     });
 
@@ -62,148 +89,112 @@ void main() {
       for (final status in KycStatus.values) {
         expect(nextActionHint(status), isNotEmpty);
       }
-      expect(nextActionHint(KycStatus.pending), contains('MVola'));
-      expect(nextActionHint(KycStatus.replied).toLowerCase(), contains('replied'));
+      expect(nextActionHint(KycStatus.pending, paymentRequired: true), contains('MVola'));
+      // Once the payment is validated the request is submitted; stop asking.
+      expect(
+        nextActionHint(KycStatus.pending, paymentRequired: true, isSubmitted: true),
+        isNot(contains('MVola')),
+      );
+      // Without a payment request the hint must not mention paying.
+      expect(nextActionHint(KycStatus.pending), isNot(contains('MVola')));
     });
   });
 
   group('notifications', () {
-    setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+    test('load pulls the server feed and counts unread rows', () async {
+      final service = FakeKycService(
+        notificationItems: [
+          _item(id: 'a', ticketId: 't1'),
+          _item(id: 'b', readAt: DateTime(2026, 9, 25, 10)),
+        ],
+      );
+      final controller = NotificationsController(service);
 
-    test('a request without a reply produces no notification', () async {
-      final controller = NotificationsController(const FlutterSecureStorage());
       await controller.load();
-      controller.sync([_request(id: 'a', code: 'TNG-1', status: KycStatus.pending)]);
-      expect(controller.items, isEmpty);
-      expect(controller.unreadCount, 0);
-    });
 
-    test('a replied request produces one unread notification', () async {
-      final controller = NotificationsController(const FlutterSecureStorage());
-      await controller.load();
-      controller.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 25),
-        ),
-      ]);
-      expect(controller.items.length, 1);
+      expect(service.notificationsCalls, 1);
+      expect(controller.items, hasLength(2));
       expect(controller.unreadCount, 1);
       expect(controller.hasUnread, isTrue);
-      expect(controller.items.first.ticketCode, 'TNG-1');
+      expect(controller.error, isNull);
     });
 
-    test('marking read clears the badge and persists the choice', () async {
-      FlutterSecureStorage.setMockInitialValues({});
-      final controller = NotificationsController(const FlutterSecureStorage());
+    test('an empty feed is not an error', () async {
+      final controller = NotificationsController(FakeKycService());
       await controller.load();
-      controller.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 25),
-        ),
-      ]);
+      expect(controller.items, isEmpty);
+      expect(controller.unreadCount, 0);
+      expect(controller.hasUnread, isFalse);
+    });
+
+    test('a load failure surfaces an error without wiping state', () async {
+      final controller = NotificationsController(
+        FakeKycService(failNotificationsWithCode: 'INTERNAL'),
+      );
+      await controller.load();
+      expect(controller.error, isNotNull);
+      expect(controller.items, isEmpty);
+    });
+
+    test('marking read updates locally and persists server side', () async {
+      final service = FakeKycService(notificationItems: [_item(id: 'a')]);
+      final controller = NotificationsController(service);
+      await controller.load();
+
       await controller.markRead('a');
+
       expect(controller.unreadCount, 0);
       expect(controller.items.first.unread, isFalse);
-
-      // A fresh controller reading the same storage must still consider it read.
-      final reopened = NotificationsController(const FlutterSecureStorage());
-      await reopened.load();
-      reopened.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 25),
-        ),
-      ]);
-      expect(reopened.unreadCount, 0);
+      expect(service.markReadCalls, 1);
+      expect(service.lastMarkedReadId, 'a');
     });
 
-    test('a newer reply reopens the notification', () async {
-      FlutterSecureStorage.setMockInitialValues({});
-      final controller = NotificationsController(const FlutterSecureStorage());
+    test('marking an already-read row is a no-op', () async {
+      final service = FakeKycService(
+        notificationItems: [_item(id: 'a', readAt: DateTime(2026, 9, 25, 10))],
+      );
+      final controller = NotificationsController(service);
       await controller.load();
-      controller.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 25),
-        ),
-      ]);
+
       await controller.markRead('a');
-      expect(controller.unreadCount, 0);
-
-      controller.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 26),
-        ),
-      ]);
-      expect(controller.unreadCount, 1);
+      expect(service.markReadCalls, 0);
     });
 
-    test('notifications are ordered most recent first', () async {
-      final controller = NotificationsController(const FlutterSecureStorage());
+    test('markAllRead clears every badge and calls the service once', () async {
+      final service = FakeKycService(
+        notificationItems: [_item(id: 'a'), _item(id: 'b')],
+      );
+      final controller = NotificationsController(service);
       await controller.load();
-      controller.sync([
-        _request(
-          id: 'old',
-          code: 'TNG-OLD',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 10),
-        ),
-        _request(
-          id: 'new',
-          code: 'TNG-NEW',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 24),
-        ),
-      ]);
-      expect(controller.items.first.ticketCode, 'TNG-NEW');
-    });
-
-    test('markAllRead clears every badge', () async {
-      final controller = NotificationsController(const FlutterSecureStorage());
-      await controller.load();
-      controller.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 25),
-        ),
-        _request(
-          id: 'b',
-          code: 'TNG-2',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 24),
-        ),
-      ]);
       expect(controller.unreadCount, 2);
+
       await controller.markAllRead();
+
       expect(controller.unreadCount, 0);
+      expect(service.markAllReadCalls, 1);
     });
 
-    test('sync before load is ignored rather than wiping state', () async {
-      final controller = NotificationsController(const FlutterSecureStorage());
-      controller.sync([
-        _request(
-          id: 'a',
-          code: 'TNG-1',
-          status: KycStatus.replied,
-          lastReplyAt: DateTime(2026, 9, 25),
-        ),
-      ]);
+    test('markAllRead on an all-read feed does not call the service', () async {
+      final service = FakeKycService(
+        notificationItems: [_item(id: 'a', readAt: DateTime(2026, 9, 25, 10))],
+      );
+      final controller = NotificationsController(service);
+      await controller.load();
+
+      await controller.markAllRead();
+      expect(service.markAllReadCalls, 0);
+    });
+
+    test('clear drops the feed (used on sign-out)', () async {
+      final controller = NotificationsController(
+        FakeKycService(notificationItems: [_item(id: 'a')]),
+      );
+      await controller.load();
+      expect(controller.items, isNotEmpty);
+
+      controller.clear();
       expect(controller.items, isEmpty);
+      expect(controller.unreadCount, 0);
     });
   });
 }

@@ -7,14 +7,11 @@ library;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../widgets/aurora.dart';
 
 /// One onboarding page.
 class _Page {
-  const _Page({
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
+  const _Page({required this.icon, required this.title, required this.body});
 
   final IconData icon;
   final String title;
@@ -38,18 +35,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   static const _pages = [
     _Page(
       icon: Icons.verified_user_rounded,
-      title: 'Manual KYC review',
-      body: 'Ask the Tango support team to review your identity verification by hand.',
+      title: 'Vérification manuelle',
+      body: 'Demandez à l’équipe support Tango de vérifier votre identité manuellement.',
     ),
     _Page(
       icon: Icons.send_rounded,
-      title: 'One request, one ticket',
-      body: 'Every request gets its own ticket ID, so your documents map to exactly one account.',
+      title: 'Une demande, un ticket',
+      body: 'Chaque demande reçoit son propre identifiant, pour que vos documents correspondent à un seul compte.',
     ),
     _Page(
       icon: Icons.forum_rounded,
-      title: 'Follow the answer',
-      body: 'Replies from support appear right here, with an email alert when you provided one.',
+      title: 'Suivez la réponse',
+      body: 'Les réponses du support apparaissent ici, avec une alerte email lorsque vous en avez fourni une.',
     ),
   ];
 
@@ -77,55 +74,62 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: widget.onFinished,
-                child: const Text('Skip'),
+      backgroundColor: Colors.transparent,
+      body: AuroraBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: widget.onFinished,
+                  child: const Text('Passer'),
+                ),
               ),
-            ),
-            Expanded(
-              child: PageView.builder(
-                controller: _controller,
-                itemCount: _pages.length,
-                onPageChanged: (value) => setState(() => _index = value),
-                itemBuilder: (context, index) => _PageView(page: _pages[index]),
+              Expanded(
+                child: PageView.builder(
+                  controller: _controller,
+                  itemCount: _pages.length,
+                  onPageChanged: (value) => setState(() => _index = value),
+                  itemBuilder: (context, index) =>
+                      _PageView(page: _pages[index]),
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 26),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (var i = 0; i < _pages.length; i++)
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          height: 8,
-                          width: i == _index ? 26 : 8,
-                          decoration: BoxDecoration(
-                            color: i == _index
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.outlineVariant,
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 26),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        for (var i = 0; i < _pages.length; i++)
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 260),
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            height: 8,
+                            width: i == _index ? 26 : 8,
+                            decoration: BoxDecoration(
+                              color: i == _index
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outlineVariant,
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.pill,
+                              ),
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _next,
-                    child: Text(_isLast ? 'Get started' : 'Next'),
-                  ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    GradientButton(
+                      onPressed: _next,
+                      height: 54,
+                      child: Text(_isLast ? 'Commencer' : 'Suivant'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -152,15 +156,11 @@ class _PageView extends StatelessWidget {
             decoration: BoxDecoration(
               gradient: AppTheme.heroGradient(theme.brightness),
               borderRadius: BorderRadius.circular(44),
-              boxShadow: theme.brightness == Brightness.dark
-                  ? null
-                  : const [
-                      BoxShadow(
-                        color: Color(0x332F6B5F),
-                        blurRadius: 30,
-                        offset: Offset(0, 14),
-                      ),
-                    ],
+              boxShadow: AppTheme.glow(
+                AppColors.violet,
+                opacity: 0.45,
+                blur: 34,
+              ),
             ),
             child: Icon(page.icon, size: 68, color: AppTheme.onHero),
           ),
@@ -168,7 +168,9 @@ class _PageView extends StatelessWidget {
           Text(
             page.title,
             textAlign: TextAlign.center,
-            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 14),
           Text(

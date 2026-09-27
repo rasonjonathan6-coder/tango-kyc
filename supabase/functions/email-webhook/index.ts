@@ -20,8 +20,14 @@ import {
   sendEmail,
   userReplyRecipient,
 } from "../_shared/email-provider.ts";
+import { sendPushToUser } from "../_shared/push.ts";
 
 const PROVIDER = "resend";
+
+/// Notification wording. Identical to the client's foreground fallback so the
+/// user sees one message regardless of app state. Contains no sensitive data.
+const PUSH_TITLE = "Nouvelle réponse à votre demande";
+const PUSH_BODY = "Vous avez reçu une nouvelle réponse concernant votre demande KYC.";
 
 interface ResendReceivedEvent {
   type?: string;
@@ -185,10 +191,14 @@ Deno.serve(async (req) => {
 
     const duplicated = Boolean((stored as { duplicate?: boolean } | null)?.duplicate);
 
-    // Notify the user only for a genuinely new reply.
+    // Notify the user only for a genuinely new reply. Both the email and the
+    // Android push are driven from the resolved ticket, so a duplicate delivery
+    // produces neither a second message, nor a second push, nor a second email.
     let userNotified = false;
+    let pushSent = 0;
     if (!duplicated) {
       userNotified = await notifyUser(ticketId);
+      pushSent = await notifyPush(ticketId);
     }
 
     return jsonResponse({
@@ -196,11 +206,59 @@ Deno.serve(async (req) => {
       duplicated,
       ticket_id: ticketId,
       user_notified: userNotified,
+      push_sent: pushSent,
     });
   } catch (error) {
     return errorResponse(error);
   }
 });
+
+/**
+ * Sends the Android push for a resolved reply and returns how many devices it
+ * reached.
+ *
+ * The recipient is the *owner of the ticket*, read from `kyc_requests.user_id`,
+ * which is derived from the signature-verified webhook - never from anything the
+ * caller supplied. The data carries only the opaque ticket id, so a notification
+ * never exposes the reply body or an address.
+ *
+ * Push is best effort: the reply is already stored and the persistent
+ * notification already exists, so a Firebase outage must not fail the webhook
+ * (which would make the provider retry the whole event).
+ */
+async function notifyPush(ticketId: string): Promise<number> {
+  const admin = serviceClient();
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("user_id")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket?.user_id) {
+    console.error("Could not load the owner of ticket %s for push: %s", ticketId, error?.message);
+    return 0;
+  }
+
+  try {
+    const result = await sendPushToUser(admin, env, ticket.user_id as string, {
+      title: PUSH_TITLE,
+      body: PUSH_BODY,
+      ticketId,
+    });
+    if (result.sent === 0) {
+      console.warn("No device received the push for ticket %s.", ticketId);
+    }
+    return result.sent;
+  } catch (error) {
+    console.error(
+      "Push for ticket %s failed: %s",
+      ticketId,
+      error instanceof Error ? error.message : error,
+    );
+    return 0;
+  }
+}
 
 /**
  * Emails the ticket owner when a reply arrives by email.

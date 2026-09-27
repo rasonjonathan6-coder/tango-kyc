@@ -1,16 +1,16 @@
 /// Registration screen. When Supabase requires email confirmation the account is
 /// created without a session and the user is told to check their inbox rather
-/// than being dropped into a signed-in state that does not exist.
+/// than being dropped into a signed-in state that does not exist. Confirmation
+/// is completed by the emailed link (PKCE callback), never by a code request
+/// from this screen.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/validators.dart';
-import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
 import '../widgets/common.dart';
-import 'otp_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -61,27 +61,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     // A missing session means Supabase sent a confirmation email instead of
-    // immediately signing the user in. The mail carries both a link and a code;
-    // offer the code so the user can finish inside the app.
+    // immediately signing the user in.
+    //
+    // The confirmation LINK is the only path offered from here. Requesting an
+    // email OTP would call `signInWithOtp`, which mints a new PKCE code
+    // verifier and overwrites the one `signUp` just stored — the emailed link
+    // would then fail with `bad_code_verifier`. The user is told to open the
+    // link on this device instead.
     if (auth.isSignedIn) {
       Navigator.of(context).pop();
     } else {
-      final codeSent = await auth.sendEmailOtp(
-        email: email,
-        purpose: EmailOtpPurpose.signup,
-      );
-      if (!mounted) return;
-      if (codeSent) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => OtpScreen(email: email, purpose: EmailOtpPurpose.signup),
-          ),
-        );
-      } else {
-        // The code could not be requested, but the confirmation link still
-        // works, so fall back to the link instructions rather than failing.
-        setState(() => _awaitingConfirmation = true);
-      }
+      setState(() => _awaitingConfirmation = true);
     }
   }
 
@@ -105,6 +95,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (_awaitingConfirmation) {
       return Scaffold(
+        backgroundColor: Colors.transparent,
         appBar: AppBar(title: const Text('Confirm your email')),
         body: Padding(
           padding: const EdgeInsets.all(24),
@@ -122,7 +113,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(height: 12),
               Text(
                 'We sent a confirmation link to ${Validators.normalize(_emailController.text)}. '
-                'Open it to activate your account, then sign in.',
+                'Open it on this device to activate your account, then sign in.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
@@ -131,7 +122,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Back to sign in'),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 4),
               TextButton(
                 onPressed: auth.busy ? null : _resend,
                 child: const Text('Resend confirmation email'),
@@ -143,6 +134,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(title: const Text('Create an account')),
       body: SafeArea(
         child: SingleChildScrollView(

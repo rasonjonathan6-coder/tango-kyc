@@ -115,14 +115,41 @@ supabase secrets set \
   EMAIL_INBOUND_DOMAIN=your-domain.com \
   EMAIL_INBOUND_MAILBOX=reply \
   RESEND_WEBHOOK_SECRET=whsec_xxxxxxxx \
-  ADMIN_EMAIL=rasonjonathan6@gmail.com
+  ADMIN_EMAIL=rason<secret-hidden>6@gmail.com
 ```
 
 `EMAIL_FROM` is retained for the Resend side but is no longer used for outbound
 sending. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected
 automatically for functions in the project.
 
+### Sending through Gmail instead of Mailjet
+
+`EMAIL_TRANSPORT=gmail` switches outbound sending to the Gmail REST API. This is
+needed wherever the runtime cannot open SMTP ports (25/465/587) — Supabase Edge
+Functions run on Deno Deploy, where those are blocked, so the REST API over 443
+is the only workable Gmail transport.
+
+```bash
+supabase secrets set \
+  EMAIL_TRANSPORT=gmail \
+  GMAIL_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com \
+  GMAIL_CLIENT_SECRET=xxxxxxxx \
+  GMAIL_REFRESH_TOKEN=xxxxxxxx \
+  GMAIL_FROM_EMAIL=customerservicefor032@gmail.com \
+  GMAIL_SENDER_NAME="Tango KYC"
+```
+
+`GMAIL_FROM_EMAIL` must be the authenticated account itself; Gmail rejects a
+`From` the token is not authorised for. `GMAIL_SENDER_NAME` is the display name,
+and the messages go out as `Tango KYC <customerservicefor032@gmail.com>`. Inbound
+is unchanged: replies keep flowing through Resend and the `email.received`
+webhook, so the `Reply-To` wiring is untouched.
+
 ## 8. What the admin receives
+
+The administration is **only** emailed once an admin has approved the request's
+MVola payment. An unpaid or rejected request never reaches the admin mailbox, so
+nothing here fires on ticket creation.
 
 Subject, exactly:
 

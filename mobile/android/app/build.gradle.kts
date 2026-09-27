@@ -6,6 +6,23 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Firebase Cloud Messaging is wired only when a google-services.json is present.
+// Without it the Com google-services plugin (which generates the required
+// resources) is skipped entirely, so the app still builds and runs - it simply
+// receives no push. This keeps a Firebase-less checkout buildable while making a
+// Firebase-configured one fully functional. The file is git-ignored: it is
+// per-project client configuration, not a secret, and is not committed.
+val googleServicesFile = file("google-services.json")
+val hasFirebase = googleServicesFile.exists()
+if (hasFirebase) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn(
+        "google-services.json is absent; Firebase Cloud Messaging is disabled. " +
+            "Add mobile/android/app/google-services.json to enable push notifications.",
+    )
+}
+
 // Release signing material. Provide `android/key.properties`
 // (KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) or the matching
 // environment variables. Both files are git-ignored. A release build never falls
@@ -34,6 +51,9 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Required by flutter_local_notifications (it uses java.time on older
+        // API levels); without it the release build fails to compile.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -89,6 +109,11 @@ android {
             }
         }
     }
+}
+
+dependencies {
+    // Backport of java.time.* for the notification plugin on older Android.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 kotlin {

@@ -29,7 +29,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
       final notifications = context.read<NotificationsController>();
       kyc.load().then((_) {
         if (!mounted) return;
-        notifications.sync(kyc.requests);
+        notifications.load();
       });
     });
   }
@@ -38,23 +38,26 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     final kyc = context.read<KycController>();
     await kyc.load();
     if (!mounted) return;
-    context.read<NotificationsController>().sync(kyc.requests);
+    await context.read<NotificationsController>().load();
   }
 
   @override
   Widget build(BuildContext context) {
     final kyc = context.watch<KycController>();
+    // The synthetic welcome ticket is not a real request: it is hidden here.
+    final visible = kyc.requests.where((r) => r.registerValue != 'WELCOME').toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('My Requests')),
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(title: const Text('Historique')),
       body: RefreshIndicator(
         onRefresh: _reload,
-        child: _body(kyc),
+        child: _body(kyc, visible),
       ),
     );
   }
 
-  Widget _body(KycController kyc) {
+  Widget _body(KycController kyc, List<KycRequest> visible) {
     if (kyc.loading && kyc.requests.isEmpty) {
       return const SkeletonList();
     }
@@ -68,14 +71,14 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
       );
     }
 
-    if (kyc.requests.isEmpty) {
+    if (visible.isEmpty) {
       return ListView(
         children: [
           SizedBox(height: MediaQuery.of(context).size.height * 0.12),
           const EmptyState(
             icon: Icons.inbox_rounded,
-            title: 'No requests yet',
-            message: 'Submit a manual KYC verification request from the Home screen.',
+            title: 'Aucune demande',
+            message: 'Envoyez une demande de vérification depuis l’accueil.',
           ),
         ],
       );
@@ -83,9 +86,9 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 
     return ListView.builder(
       padding: AppSpacing.page,
-      itemCount: kyc.requests.length,
+      itemCount: visible.length,
       itemBuilder: (context, index) {
-        final request = kyc.requests[index];
+        final request = visible[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _RequestCard(request: request),
@@ -131,11 +134,16 @@ class _RequestCard extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               InfoRow(label: 'Ticket', value: request.ticketCode),
-              InfoRow(label: 'Status', value: request.status.label),
-              InfoRow(label: 'Created', value: formatDate(request.createdAt)),
+              InfoRow(label: 'Statut', value: request.status.label),
+              InfoRow(label: 'Créée le', value: formatDate(request.createdAt)),
               InfoRow(label: request.registerType.label, value: request.registerValue),
+              if (request.paymentRequired)
+                InfoRow(
+                  label: 'Paiement',
+                  value: request.paymentStatus == 'approved' ? 'Validé' : 'En attente',
+                ),
               if (request.lastReplyAt != null)
-                InfoRow(label: 'Last reply', value: formatDateTime(request.lastReplyAt!)),
+                InfoRow(label: 'Dernière réponse', value: formatDateTime(request.lastReplyAt!)),
               const SizedBox(height: 6),
               Align(
                 alignment: Alignment.centerRight,

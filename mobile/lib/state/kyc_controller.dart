@@ -85,9 +85,6 @@ class KycController extends ChangeNotifier {
 
   Future<List<TicketMessage>> messages(String ticketId) => _service.messages(ticketId);
 
-  Future<void> sendReply(String ticketId, String body) async {
-    await _service.reply(ticketId, body);
-    _requests = await _service.myRequests();
-    notifyListeners();
-  }
+  Future<List<StatusHistoryEntry>> statusHistory(String ticketId) =>
+      _service.statusHistory(ticketId);
 }

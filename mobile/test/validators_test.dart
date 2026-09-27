@@ -194,14 +194,93 @@ void main() {
       expect(request.lastReplyAt, isNotNull);
     });
 
+    test('KycRequest derives the submission state from the create response', () {
+      final pending = KycRequest.fromMap({
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'awaiting_submission',
+        'is_submitted': false,
+      });
+      expect(pending.paymentRequired, isTrue);
+      expect(pending.isSubmitted, isFalse);
+      expect(pending.paymentStatus, 'awaiting_submission');
+
+      final approved = KycRequest.fromMap({
+        'id': '2',
+        'ticket_code': 'TNG-2',
+        'tango_profile_link': 'https://tango.me/u/2',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'approved',
+        'is_submitted': true,
+      });
+      expect(approved.paymentRequired, isTrue);
+      expect(approved.isSubmitted, isTrue);
+      expect(approved.paymentStatus, 'approved');
+    });
+
+    test('KycRequest derives the submission state from embedded payment rows', () {
+      Map<String, dynamic> row(List<Map<String, dynamic>> payments) => {
+            'id': '1',
+            'ticket_code': 'TNG-1',
+            'tango_profile_link': 'https://tango.me/u/1',
+            'register_type': 'email',
+            'register_value': 'a@b.com',
+            'status': 'pending',
+            'created_at': '2026-09-25T10:00:00.000Z',
+            'payment_required': true,
+            'mvola_payments': payments,
+          };
+
+      final noPayment = KycRequest.fromMap(row(const []));
+      expect(noPayment.isSubmitted, isFalse);
+      expect(noPayment.paymentStatus, 'awaiting_submission');
+
+      final pendingPayment = KycRequest.fromMap(row([
+        {'status': 'pending'},
+      ]));
+      expect(pendingPayment.isSubmitted, isFalse);
+      expect(pendingPayment.paymentStatus, 'pending');
+
+      final approvedPayment = KycRequest.fromMap(row([
+        {'status': 'rejected'},
+        {'status': 'approved'},
+      ]));
+      expect(approvedPayment.isSubmitted, isTrue);
+      expect(approvedPayment.paymentStatus, 'approved');
+    });
+
+    test('KycRequest defaults to submitted when the server sends no state', () {
+      final request = KycRequest.fromMap({
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+      });
+      expect(request.isSubmitted, isTrue);
+      expect(request.paymentRequired, isFalse);
+    });
+
     test('Profile greeting uses the first name', () {
       expect(
         const Profile(id: 'x', displayName: 'Jonathan Raso', role: 'user').greetingName,
         'Jonathan',
       );
       expect(
-        const Profile(id: 'x', email: 'jonathan@example.com', role: 'user').greetingName,
-        'jonathan',
+        const Profile(id: 'x', email: '<secret-hidden>@example.com', role: 'user').greetingName,
+        '<secret-hidden>',
       );
     });
 

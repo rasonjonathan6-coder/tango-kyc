@@ -12,3 +12,9 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Firebase client configuration. Not a server secret (the service-account key
+# stays in Supabase Edge Function secrets), but it is per-project and
+# environment-specific, so it is kept out of version control like Flutter's own
+# template does.
+google-services.json

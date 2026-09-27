@@ -11,6 +11,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
+  assertNotIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   base64UrlEncode,
@@ -322,9 +323,9 @@ Deno.test("sendGmailMessage never puts credentials in the URL", async (ctx) => {
     async (calls) => {
       await sendGmailMessage(BASE_ARGS, CREDS, { boundary: "BND", verifyMessageId: false });
       for (const call of calls) {
-        assert(!String(call.url).includes(CREDS.clientSecret));
-        assert(!String(call.url).includes(CREDS.refreshToken));
-        assert(!String(call.url).includes("at-1"));
+        assertNotIncludes(call.url, CREDS.clientSecret);
+        assertNotIncludes(call.url, CREDS.refreshToken);
+        assertNotIncludes(call.url, "at-1");
       }
     },
     ctx,
@@ -347,8 +348,8 @@ Deno.test("sendGmailMessage reports a refused message as 502 without leaking sec
       );
       assert(error instanceof AppError);
       assertEquals((error as AppError).status, 502);
-      assert(!String(String((error as AppError).message)).includes(CREDS.refreshToken));
-      assert(!String(String((error as AppError).message)).includes(CREDS.clientSecret));
+      assertNotIncludes(String((error as AppError).message), CREDS.refreshToken);
+      assertNotIncludes(String((error as AppError).message), CREDS.clientSecret);
     },
     ctx,
   );

@@ -17,6 +17,7 @@ import 'package:tango_kyc_verification/core/validators.dart';
 import 'package:tango_kyc_verification/services/auth_service.dart';
 import 'package:tango_kyc_verification/state/auth_controller.dart';
 import 'package:tango_kyc_verification/ui/screens/otp_screen.dart';
+import 'package:tango_kyc_verification/ui/widgets/aurora.dart';
 import 'package:tango_kyc_verification/ui/screens/reset_password_screen.dart';
 
 import 'fakes.dart';
@@ -119,8 +120,8 @@ void main() {
       await tester.pumpWidget(wrap(otpScreen(purpose: EmailOtpPurpose.signup), auth: auth));
       await tester.pumpAndSettle();
 
-      expect(find.text('Enter your code'), findsOneWidget);
-      expect(find.textContaining('$kEmailOtpLength-digit code'), findsOneWidget);
+      expect(find.text('Entrez votre code'), findsOneWidget);
+      expect(find.textContaining('$kEmailOtpLength chiffres'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
     });
 
@@ -130,16 +131,16 @@ void main() {
       await tester.pumpWidget(wrap(otpScreen(purpose: EmailOtpPurpose.signup), auth: auth));
       await tester.pumpAndSettle();
 
-      final button = tester.widget<FilledButton>(find.byType(FilledButton));
+      final button = tester.widget<GradientButton>(find.byType(GradientButton));
       expect(button.onPressed, isNull);
 
       await tester.enterText(find.byType(TextField), '1234');
       await tester.pump();
-      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+      expect(tester.widget<GradientButton>(find.byType(GradientButton)).onPressed, isNull);
 
       await tester.enterText(find.byType(TextField), '12345678');
       await tester.pump();
-      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNotNull);
+      expect(tester.widget<GradientButton>(find.byType(GradientButton)).onPressed, isNotNull);
       expect(service.otpVerifyCalls, 0);
     });
 
@@ -152,7 +153,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '99999999');
       await tester.pump();
-      await tester.tap(find.text('Verify code'));
+      await tester.tap(find.text('Vérifier le code'));
       await tester.pumpAndSettle();
 
       expect(service.otpVerifyCalls, 1);
@@ -170,7 +171,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '12345678');
       await tester.pump();
-      await tester.tap(find.text('Verify code'));
+      await tester.tap(find.text('Vérifier le code'));
       await tester.pumpAndSettle();
 
       expect(service.otpVerifyCalls, 1);
@@ -183,7 +184,7 @@ void main() {
       await tester.pumpWidget(wrap(otpScreen(purpose: EmailOtpPurpose.signup), auth: auth));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Resend code'));
+      await tester.tap(find.text('Renvoyer le code'));
       await tester.pumpAndSettle();
 
       expect(service.otpResendCalls, 1);

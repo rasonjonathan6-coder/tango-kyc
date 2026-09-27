@@ -136,7 +136,7 @@ export function replyToAddress(ticketCode: string, replyToken: string): string {
 }
 
 export function adminEmail(): string {
-  return env("ADMIN_EMAIL") || "rasonjonathan6@gmail.com";
+  return env("ADMIN_EMAIL") || "rason<secret-hidden>6@gmail.com";
 }
 
 /**
@@ -391,6 +391,96 @@ export interface TicketForAdminNotification {
   register_type: "email" | "phone";
   register_value: string;
   reply_token: string;
+  /** Payment amount in the configured currency, when a payment was validated. */
+  payment_amount?: number | null;
+  payment_currency?: string | null;
+  payment_status?: string | null;
+  payment_reviewed_at?: string | null;
+}
+
+/**
+ * Builds the admin KYC email. Pure, so the wording is unit-tested without a
+ * network or a provider credential.
+ */
+export function adminRequestEmailContent(
+  ticket: TicketForAdminNotification,
+): { subject: string; text: string; html: string } {
+  const registerLine = ticket.register_type === "email"
+    ? `Register email: ${plain(ticket.register_value)}`
+    : `Register number: ${plain(ticket.register_value)}`;
+
+  const subject =
+    `Manual KYC Verification request - Profil Creator (${plain(ticket.tango_profile_link)}) [${ticket.ticket_code}]`;
+
+  const amountLine = ticket.payment_amount != null
+    ? `${ticket.payment_amount} ${plain(ticket.payment_currency ?? "")}`.trim()
+    : null;
+  const managedAt = ticket.payment_reviewed_at ?? new Date().toISOString();
+
+  const text = [
+    "Hello support tango team,",
+    "",
+    "A new KYC verification request is ready for manual review.",
+    "",
+    "My account information:",
+    "",
+    `Tango profile ID: ${plain(ticket.tango_profile_link)}`,
+    registerLine,
+    "",
+    `Ticket ID: ${ticket.ticket_code}`,
+    `Payment status: ${plain(ticket.payment_status ?? "approved")}`,
+    ...(amountLine ? [`Payment amount: ${amountLine}`] : []),
+    `Received: ${managedAt}`,
+    "",
+    "Send me the link for my verification.",
+    "",
+    "Please restart a manual review of my verification status.",
+    "",
+    "Thank you.",
+  ].join("\n");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
+<p>Hello support tango team,</p>
+<p>A new KYC verification request is ready for manual review.</p>
+<p><strong>My account information:</strong></p>
+<p>Tango profile ID: ${escapeHtml(ticket.tango_profile_link)}<br>
+${ticket.register_type === "email" ? "Register email" : "Register number"}: ${escapeHtml(ticket.register_value)}</p>
+<p><strong>Request details</strong></p>
+<p>Ticket ID: ${escapeHtml(ticket.ticket_code)}<br>
+Payment status: ${escapeHtml(ticket.payment_status ?? "approved")}${amountLine ? `<br>Payment amount: ${escapeHtml(amountLine)}` : ""}<br>
+Received: ${escapeHtml(managedAt)}</p>
+<p>Send me the link for my verification.</p>
+<p>Please restart a manual review of my verification status.</p>
+<p>Thank you.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p style="color:#6b7280"><strong>Ticket ID:</strong> ${escapeHtml(ticket.ticket_code)}</p>
+</div>`;
+
+  return { subject, text, html };
+}
+
+/** Builds the "officially submitted" confirmation sent to the requester. */
+export function userSubmittedEmailContent(
+  ticket: TicketForAdminNotification,
+): { subject: string; text: string; html: string } {
+  const text = [
+    "Bonjour,",
+    "",
+    `Votre demande KYC ${ticket.ticket_code} a été envoyée avec succès après validation de votre paiement.`,
+    "",
+    "Notre équipe va maintenant la traiter. Vous serez informé à chaque étape.",
+    "",
+    "Merci d'utiliser Tango KYC Verification.",
+  ].join("\n");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
+<p>Bonjour,</p>
+<p>Votre demande KYC <strong>${escapeHtml(ticket.ticket_code)}</strong> a été envoyée avec succès après validation de votre paiement.</p>
+<p>Notre équipe va maintenant la traiter. Vous serez informé à chaque étape.</p>
+<p>Merci d'utiliser Tango KYC Verification.</p>
+</div>`;
+
+  return { subject: `Tango KYC Verification - demande ${ticket.ticket_code} envoyée`, text, html };
 }
 
 /**
@@ -399,7 +489,7 @@ export interface TicketForAdminNotification {
  * Only ever called once a payment is approved, so an unpaid request never
  * reaches the admin inbox. The Tango profile link and the Tango registration
  * value are informational fields in the body; the recipient is the configured
- * admin address, never the user.
+ * admin address, never the user. No secret, token or password is ever included.
  */
 export async function sendAdminRequestNotification(
   ticket: TicketForAdminNotification,
@@ -412,50 +502,11 @@ export async function sendAdminRequestNotification(
     return false;
   }
 
-  const registerLine = ticket.register_type === "email"
-    ? `Register email: ${plain(ticket.register_value)}`
-    : `Register number: ${plain(ticket.register_value)}`;
+  const { subject, text, html } = adminRequestEmailContent(ticket);
 
-  const subject =
-    `Manual KYC Verification request - Profil Creator (${plain(ticket.tango_profile_link)}) [${ticket.ticket_code}]`;
-
-  const text = [
-    "Hello support tango team,",
-    "",
-    "I am requesting a manual review of my identity verification (KYC).",
-    "",
-    "I have valid official government documents ready for submission to prove my identity.",
-    "",
-    "My account information:",
-    "",
-    `Tango profile ID: ${plain(ticket.tango_profile_link)}`,
-    registerLine,
-    "",
-    "Send me the link for my verification.",
-    "",
-    "Please restart a manual review of my verification status.",
-    "",
-    "Thank you.",
-    "",
-    `Ticket ID: ${ticket.ticket_code}`,
-  ].join("\n");
-
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
-<p>Hello support tango team,</p>
-<p>I am requesting a manual review of my identity verification (KYC).</p>
-<p>I have valid official government documents ready for submission to prove my identity.</p>
-<p><strong>My account information:</strong></p>
-<p>Tango profile ID: ${escapeHtml(ticket.tango_profile_link)}<br>
-${ticket.register_type === "email" ? "Register email" : "Register number"}: ${escapeHtml(ticket.register_value)}</p>
-<p>Send me the link for my verification.</p>
-<p>Please restart a manual review of my verification status.</p>
-<p>Thank you.</p>
-<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
-<p style="color:#6b7280"><strong>Ticket ID:</strong> ${escapeHtml(ticket.ticket_code)}</p>
-</div>`;
-
+  const recipient = adminKycRecipient();
   const result = await sendEmail({
-    to: adminKycRecipient(),
+    to: recipient,
     subject,
     text,
     html,
@@ -478,6 +529,43 @@ ${ticket.register_type === "email" ? "Register email" : "Register number"}: ${es
   if (error) {
     console.error("Could not record outbound email id for %s: %s", ticket.ticket_code, error.message);
   }
+
+  return true;
+}
+
+/**
+ * Emails the ticket owner the confirmation that their request is officially
+ * submitted, after the payment has been validated.
+ *
+ * Sent to the Tango registration address the user supplied (`register_value`),
+ * matching the existing owner-notification rule. A phone-only requester is never
+ * emailed, and the call is idempotent on the ticket code so a replayed approval
+ * cannot produce a second message. No secret is included.
+ */
+export async function sendUserRequestSubmittedEmail(
+  ticket: TicketForAdminNotification,
+): Promise<boolean> {
+  const { recipient, reason } = userReplyRecipient(ticket);
+  if (!recipient) {
+    console.warn("Ticket %s: %s; no submission email sent.", ticket.ticket_code, reason);
+    return false;
+  }
+
+  if (!emailSendingConfigured()) {
+    console.warn("Email is not configured: owner of %s was not emailed.", ticket.ticket_code);
+    return false;
+  }
+
+  const { subject, text, html } = userSubmittedEmailContent(ticket);
+
+  await sendEmail({
+    to: recipient,
+    subject,
+    text,
+    html,
+    replyTo: replyToAddress(ticket.ticket_code, ticket.reply_token),
+    idempotencyKey: `kyc-user-submitted-${ticket.ticket_code}`,
+  });
 
   return true;
 }

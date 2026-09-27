@@ -125,7 +125,9 @@ User submits the KYC form
         │
         ▼
 create-kyc-request  →  create_kyc_request()  →  ticket: pending
-        │                                          no email is sent
+        │              (MVola enabled → ticket is marked payment_required and
+        │               the user is told to pay; the request is NOT yet submitted)
+        │              no email is sent
         ▼
 User picks the ticket and pays
         │
@@ -148,18 +150,27 @@ admin opens the queue, checks the reference against the MVola statement
         ▼
 POST admin-actions { action: mvola_decision }   admin_mvola_set_decision()
         │
-        ├── approved   final; the ticket can never open another payment
+        ├── approved   final; the ticket can never open another payment, and the
+        │              request is now *officially submitted*
         │              → ticketPaymentApproved() re-reads the row
         │              → sendAdminRequestNotification() emails the administration
+        │              → sendUserRequestSubmittedEmail() confirms to the requester
+        │              → the `request_submitted` notification fires (SQL trigger)
         │              → a send failure is reported, never raised
         └── rejected   records a reason; the user may start a corrected payment
-                       → no email is sent
+                       → no email is sent, the request stays unsubmitted
 ```
 
 The ticket's own `status` is untouched by any of this: an approved payment does
 not move the ticket out of `pending`. Payment state and KYC state are separate
 columns that happen to be read together when deciding whether to notify the
 administration.
+
+"Officially submitted" is derived, not stored: `kyc_submission_state(ticket)`
+reports `payment_status` and `is_submitted`, where `is_submitted` is true only
+when payments are disabled or an approved `mvola_payments` row exists. Approval
+is the single moment the admin is emailed, the user is emailed and the
+`request_submitted` notification is produced.
 
 Three properties are enforced in the database rather than in the client:
 

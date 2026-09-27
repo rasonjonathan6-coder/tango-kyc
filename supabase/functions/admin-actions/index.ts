@@ -11,6 +11,7 @@ import {
   emailSendingConfigured,
   sendAdminRequestNotification,
   sendEmail,
+  sendUserRequestSubmittedEmail,
   ticketPaymentApproved,
   userReplyRecipient,
 } from "../_shared/email-provider.ts";
@@ -88,6 +89,18 @@ Deno.serve(async (req) => {
         return jsonResponse({ ticket: data });
       }
 
+      // The explicit "a payment is now required" signal. It flips the ticket
+      // flag (which gates mvola_start_payment) and the SQL function raises the
+      // user notification, so the two can never drift apart.
+      case "request_payment": {
+        if (!payload.ticket_id) throw new AppError("TICKET_NOT_FOUND", "Missing ticket_id", 422);
+        const { data, error } = await asAdmin.rpc("admin_request_payment", {
+          p_ticket_id: payload.ticket_id,
+        });
+        if (error) throw translateDbError(error);
+        return jsonResponse({ ticket: data });
+      }
+
       case "post_message": {
         if (!payload.ticket_id) throw new AppError("TICKET_NOT_FOUND", "Missing ticket_id", 422);
         const message = (payload.body ?? "").trim();
@@ -159,15 +172,22 @@ Deno.serve(async (req) => {
         });
         if (error) throw translateDbError(error);
 
-        // An approval is the moment the request becomes authorised for KYC
-        // processing, so this is where the administration is finally notified.
-        // A rejection sends nothing.
+        // An approval is the moment the request becomes officially submitted
+        // and authorised for KYC processing, so this is the single place the
+        // administration and the user are notified. A rejection sends nothing.
         let adminNotified = false;
+        let userNotified = false;
         if (payload.decision === "approved") {
-          adminNotified = await notifyAdminOfApprovedRequest(data.ticket_id as string);
+          const ticketId = data.ticket_id as string;
+          adminNotified = await notifyAdminOfApprovedRequest(ticketId);
+          userNotified = await notifyUserOfApprovedRequest(ticketId);
         }
 
-        return jsonResponse({ payment: data, admin_notified: adminNotified });
+        return jsonResponse({
+          payment: data,
+          admin_notified: adminNotified,
+          user_notified: userNotified,
+        });
       }
 
       default:
@@ -204,8 +224,25 @@ async function notifyAdminOfApprovedRequest(ticketId: string): Promise<boolean> 
     return false;
   }
 
+  const { data: payment } = await admin
+    .from("mvola_payments")
+    .select("amount, currency, status, reviewed_at")
+    .eq("ticket_id", ticketId)
+    .eq("status", "approved")
+    .order("reviewed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const enriched = {
+    ...(ticket as TicketForAdminNotification),
+    payment_amount: payment?.amount ?? null,
+    payment_currency: payment?.currency ?? null,
+    payment_status: payment?.status ?? "approved",
+    payment_reviewed_at: payment?.reviewed_at ?? null,
+  };
+
   try {
-    return await sendAdminRequestNotification(ticket as TicketForAdminNotification);
+    return await sendAdminRequestNotification(enriched);
   } catch (error) {
     // The payment decision is already committed, so a failed notification must
     // not fail the admin's action: reporting 502 here would tell the admin the
@@ -213,6 +250,46 @@ async function notifyAdminOfApprovedRequest(ticketId: string): Promise<boolean> 
     // `admin_notified: false` instead.
     console.error(
       "Could not notify the admin for ticket %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
+}
+
+/**
+ * Emails the requester the confirmation that their request is officially
+ * submitted, after the payment was approved.
+ *
+ * The payment approval is re-read from the database, so the user email is
+ * produced by the same server-side condition as the admin email and can never be
+ * triggered by a client claiming success. Failures do not roll back the
+ * approval; they are reported as `user_notified: false`.
+ */
+async function notifyUserOfApprovedRequest(ticketId: string): Promise<boolean> {
+  const admin = serviceClient();
+
+  if (!await ticketPaymentApproved(ticketId)) {
+    console.warn("KYC request for ticket %s is not payment-approved; no user email sent.", ticketId);
+    return false;
+  }
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket) {
+    console.error("Could not load ticket %s for user notification: %s", ticketId, error?.message);
+    return false;
+  }
+
+  try {
+    return await sendUserRequestSubmittedEmail(ticket as TicketForAdminNotification);
+  } catch (error) {
+    console.error(
+      "Could not notify the owner for ticket %s: %s",
       ticket.ticket_code,
       error instanceof Error ? error.message : error,
     );

@@ -100,9 +100,36 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
     await _load();
   }
 
+  Future<void> _requestPayment() async {
+    final admin = context.read<AdminController>();
+    final ok = await admin.requestPayment(widget.ticketId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? 'Paiement demandé. L’utilisateur a été notifié.'
+            : ErrorMessages.from(admin.lastErrorCode ?? '')),
+      ),
+    );
+    if (ok) await _load();
+  }
+
+  /// Human label for the server-derived payment status, so an admin can see at
+  /// a glance whether a request is still awaiting payment or officially
+  /// submitted.
+  static String _paymentStatusLabel(String? status) => switch (status) {
+        'approved' => 'Validé',
+        'pending' => 'Vérification en cours',
+        'rejected' => 'Refusé',
+        'awaiting_submission' => 'Non soumis',
+        'not_required' => 'Non requis',
+        _ => 'Inconnu',
+      };
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Ticket'),
         actions: [
@@ -140,6 +167,35 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
                   InfoRow(
                     label: 'Last Reply',
                     value: ticket.lastReplyAt == null ? 'None' : formatDateTime(ticket.lastReplyAt!),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SummaryCard(
+                title: 'Paiement',
+                trailing: StatusPill(
+                  status: ticket.isSubmitted ? KycStatus.inReview : KycStatus.pending,
+                  compact: true,
+                ),
+                children: [
+                  InfoRow(
+                    label: 'État de la demande',
+                    value: ticket.isSubmitted ? 'Demande soumise' : 'Paiement en attente',
+                  ),
+                  InfoRow(
+                    label: 'Paiement requis',
+                    value: ticket.paymentRequired ? 'Oui' : 'Non',
+                  ),
+                  InfoRow(
+                    label: 'Statut du paiement',
+                    value: _paymentStatusLabel(ticket.paymentStatus),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: ticket.paymentRequired ? null : _requestPayment,
+                    icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+                    label: const Text('Demander un paiement'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
                   ),
                 ],
               ),

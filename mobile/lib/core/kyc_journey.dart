@@ -33,9 +33,23 @@ enum KycStep {
 ///
 /// Written so a user who knows nothing about the backend understands their
 /// situation from the dashboard alone.
-String nextActionHint(KycStatus status) => switch (status) {
-      KycStatus.pending =>
-        'Complete the MVola payment so your request can be reviewed.',
+///
+/// The payment step only exists when the administration has explicitly asked for
+/// it ([paymentRequired]). A request that still owes a payment must be told to
+/// pay and must never be presented as "received"; once the payment has been
+/// validated ([isSubmitted]) it has reached the review stage. A request that owes
+/// nothing reads as an acknowledgement.
+String nextActionHint(
+  KycStatus status, {
+  bool paymentRequired = false,
+  bool isSubmitted = false,
+}) =>
+    switch (status) {
+      KycStatus.pending => paymentRequired
+          ? (isSubmitted
+              ? 'Your request has been received. Support will review it shortly.'
+              : 'Your request is ready. Complete the MVola payment to finalise the submission.')
+          : 'Your request has been received. Support will review it shortly.',
       KycStatus.inReview => 'Support is reviewing your documents. No action needed.',
       KycStatus.replied => 'Support replied. Open the ticket to read the message.',
       KycStatus.closed => 'This request is closed. You can submit a new one if needed.',
@@ -43,21 +57,50 @@ String nextActionHint(KycStatus status) => switch (status) {
 
 /// The furthest step reached for a given status.
 ///
-/// The mapping is deliberately conservative: a payment is only considered
-/// confirmed once the status has moved past `pending`, because the app cannot see
-/// the payment decision while the request is still pending.
-KycStep currentStep(KycStatus status) => switch (status) {
-      KycStatus.pending => KycStep.payment,
+/// The mapping is deliberately conservative: a payment is only part of the
+/// journey once the administration has actually requested one
+/// ([paymentRequired]), and the journey only leaves the payment step once that
+/// payment has been validated ([isSubmitted]). A request still awaiting payment
+/// must not be shown as submitted, and an approved payment that has not yet
+/// moved the ticket must not keep asking for a payment.
+KycStep currentStep(
+  KycStatus status, {
+  bool paymentRequired = false,
+  bool isSubmitted = false,
+}) =>
+    switch (status) {
+      KycStatus.pending => paymentRequired
+          ? (isSubmitted ? KycStep.review : KycStep.submitted)
+          : KycStep.submitted,
       KycStatus.inReview => KycStep.review,
       KycStatus.replied => KycStep.answer,
       KycStatus.closed => KycStep.answer,
     };
 
 /// Whether a given step is complete for a status.
-bool isStepDone(KycStatus status, KycStep step) => step.index <= currentStep(status).index;
+bool isStepDone(
+  KycStatus status,
+  KycStep step, {
+  bool paymentRequired = false,
+  bool isSubmitted = false,
+}) =>
+    step.index <=
+    currentStep(status, paymentRequired: paymentRequired, isSubmitted: isSubmitted).index;
 
 /// Builds the ordered timeline for a status, ready to render.
-List<({String label, bool done})> journeyFor(KycStatus status) => [
+List<({String label, bool done})> journeyFor(
+  KycStatus status, {
+  bool paymentRequired = false,
+  bool isSubmitted = false,
+}) => [
       for (final step in KycStep.values)
-        (label: step.label, done: isStepDone(status, step)),
+        (
+          label: step.label,
+          done: isStepDone(
+            status,
+            step,
+            paymentRequired: paymentRequired,
+            isSubmitted: isSubmitted,
+          ),
+        ),
     ];

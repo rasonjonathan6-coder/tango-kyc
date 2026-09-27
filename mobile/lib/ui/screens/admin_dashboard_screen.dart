@@ -9,6 +9,7 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/admin_controller.dart';
 import '../../state/auth_controller.dart';
+import '../widgets/aurora.dart';
 import '../widgets/common.dart';
 import 'admin_mvola_screen.dart';
 import 'admin_ticket_screen.dart';
@@ -36,20 +37,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final theme = Theme.of(context);
 
     if (!isAdmin) {
-      return const EmptyState(
-        icon: Icons.lock_outline_rounded,
-        title: 'Admin access required',
-        message: 'Your account does not have permission to view this dashboard.',
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: EmptyState(
+          icon: Icons.lock_outline_rounded,
+          title: 'Accès administrateur requis',
+          message: 'Votre compte n’a pas la permission de consulter ce tableau de bord.',
+        ),
       );
     }
 
-    return RefreshIndicator(
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(title: const Text('Administration')),
+      body: AuroraBackground(
+        child: RefreshIndicator(
       onRefresh: () => admin.load(),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
         children: [
           Text(
-            'Overview',
+            'Vue d’ensemble',
             style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
@@ -59,8 +67,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             child: Card(
               child: ListTile(
                 leading: const Icon(Icons.account_balance_wallet_rounded),
-                title: const Text('MVola payments'),
-                subtitle: const Text('Verify manual Mobile Money transfers'),
+                title: const Text('Paiements MVola'),
+                subtitle: const Text('Vérifier les transferts Mobile Money manuels'),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const AdminMvolaScreen()),
@@ -71,13 +79,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           if (admin.unmatched.isNotEmpty) ...[
             const SizedBox(height: 22),
             Text(
-              'Unmatched replies',
+              'Réponses non attribuées',
               style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(
-              'These replies could not be attributed to a ticket with certainty. '
-              'They are never forwarded to a user automatically.',
+              'Ces réponses n’ont pas pu être attribuées à un ticket avec certitude. '
+              'Elles ne sont jamais transmises automatiquement à un utilisateur.',
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
@@ -89,7 +97,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ],
           const SizedBox(height: 24),
           Text(
-            'All requests',
+            'Toutes les demandes',
             style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
@@ -104,8 +112,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             const Card(
               child: EmptyState(
                 icon: Icons.folder_open_rounded,
-                title: 'No requests',
-                message: 'No manual KYC verification requests have been submitted yet.',
+                title: 'Aucune demande',
+                message: 'Aucune demande de vérification manuelle n’a encore été soumise.',
               ),
             )
           else
@@ -126,6 +134,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
         ],
       ),
+        ),
+      ),
     );
   }
 }
@@ -137,13 +147,22 @@ class _StatsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color tone(Color light, Color dark) => isDark ? dark : light;
+
     final tiles = [
-      ('Total requests', stats.total, Icons.inbox_rounded, const Color(0xFF37474F)),
-      ('Pending', stats.pending, Icons.hourglass_empty_rounded, const Color(0xFFB26A00)),
-      ('In review', stats.inReview, Icons.visibility_rounded, const Color(0xFF1D6FB8)),
-      ('Replied', stats.replied, Icons.mark_email_read_rounded, const Color(0xFF2E7D32)),
-      ('Closed', stats.closed, Icons.archive_rounded, const Color(0xFF6B6B6B)),
-      ('Unmatched', stats.unmatched, Icons.help_outline_rounded, const Color(0xFFB3261E)),
+      ('Demandes totales', stats.total, Icons.inbox_rounded,
+          tone(const Color(0xFF37474F), const Color(0xFFB9A9D8))),
+      ('En attente', stats.pending, Icons.hourglass_empty_rounded,
+          tone(const Color(0xFFB26A00), const Color(0xFFFFC24B))),
+      ('En vérification', stats.inReview, Icons.visibility_rounded,
+          tone(const Color(0xFF1D6FB8), const Color(0xFF5CC8FF))),
+      ('Répondues', stats.replied, Icons.mark_email_read_rounded,
+          tone(const Color(0xFF2E7D32), const Color(0xFF52E39B))),
+      ('Fermées', stats.closed, Icons.archive_rounded,
+          tone(const Color(0xFF6B6B6B), const Color(0xFF9E9E9E))),
+      ('Non attribuées', stats.unmatched, Icons.help_outline_rounded,
+          tone(const Color(0xFFB3261E), const Color(0xFFFF5C8A))),
     ];
 
     return LayoutBuilder(
@@ -228,6 +247,11 @@ class _AdminTicketCard extends StatelessWidget {
               InfoRow(label: 'Tango Profile', value: ticket.tangoProfileLink),
               InfoRow(label: ticket.registerType.label, value: ticket.registerValue),
               InfoRow(label: 'Created', value: formatDate(ticket.createdAt)),
+              if (ticket.paymentRequired)
+                InfoRow(
+                  label: 'État',
+                  value: ticket.isSubmitted ? 'Demande soumise' : 'Paiement en attente',
+                ),
               InfoRow(
                 label: 'Last Reply',
                 value: ticket.lastReplyAt == null ? 'None' : formatDateTime(ticket.lastReplyAt!),
@@ -296,14 +320,14 @@ class _UnmatchedCard extends StatelessWidget {
             const SizedBox(height: 12),
             if (tickets.isEmpty)
               Text(
-                'No tickets exist yet to attach this reply to.',
+                'Aucun ticket disponible pour rattacher cette réponse.',
                 style: theme.textTheme.bodySmall,
               )
             else
               TextButton.icon(
                 onPressed: () => _attach(context),
                 icon: const Icon(Icons.link_rounded, size: 18),
-                label: const Text('Attach to a ticket'),
+                label: const Text('Rattacher à un ticket'),
               ),
           ],
         ),
@@ -324,7 +348,7 @@ class _UnmatchedCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text(
-                'Attach this reply to a ticket',
+                'Rattacher cette réponse à un ticket',
                 style: Theme.of(sheetContext).textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w700),
               ),

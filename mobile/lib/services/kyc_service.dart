@@ -31,7 +31,27 @@ abstract class KycService {
   Future<List<KycRequest>> myRequests();
   Future<KycRequest> requestById(String id);
   Future<List<TicketMessage>> messages(String ticketId);
-  Future<void> reply(String ticketId, String body);
+  Future<List<StatusHistoryEntry>> statusHistory(String ticketId);
+
+  /// The caller's own persisted notifications, newest first.
+  Future<List<NotificationItem>> notifications();
+
+  /// Marks one of the caller's own notifications as read.
+  Future<void> markNotificationRead(String notificationId);
+  Future<void> markAllNotificationsRead();
+
+  /// Marks every unread notification about one ticket read, so opening a ticket
+  /// from a push clears its badge. RLS makes this a no-op for a ticket the
+  /// caller does not own.
+  Future<void> markTicketNotificationsRead(String ticketId);
+
+  /// Registers this device's FCM token for the signed-in user. The row's
+  /// `user_id` is the caller's own; RLS rejects any other value, and the server
+  /// decides the recipient of a push from the ticket owner, never from here.
+  Future<void> registerDeviceToken({required String token, String platform = 'android'});
+
+  /// Removes this device's token, so a signed-out device stops receiving pushes.
+  Future<void> unregisterDeviceToken({required String token});
 }
 
 abstract class AdminService {
@@ -41,6 +61,9 @@ abstract class AdminService {
   Future<void> setStatus(String ticketId, KycStatus status);
   Future<void> postMessage(String ticketId, String body);
   Future<void> resolveUnmatched(String unmatchedId, String ticketId);
+
+  /// Flags the ticket as requiring a payment (the explicit, secure signal).
+  Future<void> requestPayment(String ticketId);
 }
 
 class SupabaseKycService implements KycService {
@@ -75,7 +98,8 @@ class SupabaseKycService implements KycService {
         .from('kyc_requests')
         .select(
           'id, ticket_code, tango_profile_link, register_type, register_value, '
-          'status, created_at, updated_at, last_reply_at',
+          'status, created_at, updated_at, last_reply_at, payment_required, payment_requested_at, '
+          'mvola_payments(status)',
         )
         .order('created_at', ascending: false);
     return rows.map((row) => KycRequest.fromMap(row)).toList();
@@ -87,7 +111,8 @@ class SupabaseKycService implements KycService {
         .from('kyc_requests')
         .select(
           'id, ticket_code, tango_profile_link, register_type, register_value, '
-          'status, created_at, updated_at, last_reply_at',
+          'status, created_at, updated_at, last_reply_at, payment_required, payment_requested_at, '
+          'mvola_payments(status)',
         )
         .eq('id', id)
         .maybeSingle();
@@ -111,11 +136,75 @@ class SupabaseKycService implements KycService {
   }
 
   @override
-  Future<void> reply(String ticketId, String body) async {
-    await _client.rpc('user_post_message', params: {
-      'p_ticket_id': ticketId,
-      'p_body': body,
+  Future<List<StatusHistoryEntry>> statusHistory(String ticketId) async {
+    final rows = await _client
+        .from('kyc_status_history')
+        .select('id, from_status, to_status, actor_role, created_at')
+        .eq('ticket_id', ticketId)
+        .order('created_at', ascending: true);
+    return rows.map((row) => StatusHistoryEntry.fromMap(row)).toList();
+  }
+
+  @override
+  Future<List<NotificationItem>> notifications() async {
+    final rows = await _client
+        .from('notifications')
+        .select('id, type, title, body, ticket_id, read_at, created_at')
+        .order('created_at', ascending: false)
+        .limit(100);
+    return rows.map((row) => NotificationItem.fromMap(row)).toList();
+  }
+
+  @override
+  Future<void> markNotificationRead(String notificationId) async {
+    await _client
+        .from('notifications')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', notificationId);
+  }
+
+  @override
+  Future<void> markAllNotificationsRead() async {
+    // RLS scopes the update to the caller's own rows, so no user filter is
+    // needed (and none would be trusted). Only still-unread rows are touched.
+    await _client
+        .from('notifications')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .isFilter('read_at', null);
+  }
+
+  @override
+  Future<void> markTicketNotificationsRead(String ticketId) async {
+    // Same RLS-scoped update as markAllNotificationsRead, narrowed to one
+    // ticket. A ticket that is not the caller's has no visible notifications,
+    // so the update simply matches nothing - there is no server-side path to
+    // touch another user's rows.
+    await _client
+        .from('notifications')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('ticket_id', ticketId)
+        .isFilter('read_at', null);
+  }
+
+  @override
+  Future<void> registerDeviceToken({
+    required String token,
+    String platform = 'android',
+  }) async {
+    if (_client.auth.currentUser == null) return;
+    // Goes through a SECURITY DEFINER function so a shared device can move its
+    // token to the account that just signed in; the identity is taken from the
+    // session server side. See the push_tokens migration.
+    await _client.rpc('register_device_token', params: {
+      'p_token': token,
+      'p_platform': platform,
     });
+  }
+
+  @override
+  Future<void> unregisterDeviceToken({required String token}) async {
+    // RLS confines the delete to the caller's own row.
+    await _client.from('device_tokens').delete().eq('token', token);
   }
 }
 
@@ -172,6 +261,13 @@ class SupabaseAdminService implements AdminService {
   Future<void> resolveUnmatched(String unmatchedId, String ticketId) => _invoke<void>(
         'resolve_unmatched',
         {'unmatched_id': unmatchedId, 'ticket_id': ticketId},
+        (_) {},
+      );
+
+  @override
+  Future<void> requestPayment(String ticketId) => _invoke<void>(
+        'request_payment',
+        {'ticket_id': ticketId},
         (_) {},
       );
 

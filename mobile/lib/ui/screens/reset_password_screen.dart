@@ -58,6 +58,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(title: const Text('Choose a new password')),
       body: SafeArea(
         child: SingleChildScrollView(

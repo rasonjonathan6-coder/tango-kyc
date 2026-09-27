@@ -76,13 +76,21 @@ Deno.serve(async (req) => {
       reply_token: string;
       created_at: string;
       last_reply_at: string | null;
+      payment_required: boolean;
     };
 
-    // The administration is deliberately NOT notified here. A new request can
-    // still be awaiting payment, and KYC processing mail must not go out until
-    // an admin has approved that payment. `admin-actions` sends the request to
-    // the admin mailbox at the moment the payment is approved.
+    // The administration is deliberately NOT notified here. A new request is
+    // only *officially submitted* once its MVola payment is validated by an
+    // admin, and that approval is the single moment the admin mailbox is
+    // contacted (see `admin-actions`).
     //
+    // The submission state is re-read from the database rather than inferred
+    // from the freshly returned row, so the client is told the truth about
+    // whether a payment is still owed.
+    const { data: state } = await admin
+      .rpc("kyc_submission_state", { p_ticket_id: ticket.id });
+    const submission = (state ?? {}) as { payment_status?: string; is_submitted?: boolean };
+
     // `duplicated` still reports whether this call reused an existing ticket
     // (the SQL deduplicates an identical re-submission within the window).
     const isFresh = Date.now() - new Date(ticket.created_at).getTime() < 10_000;
@@ -97,7 +105,13 @@ Deno.serve(async (req) => {
         status: ticket.status,
         created_at: ticket.created_at,
         last_reply_at: ticket.last_reply_at,
+        payment_required: ticket.payment_required === true,
+        payment_status: submission.payment_status ?? null,
+        is_submitted: submission.is_submitted === true,
       },
+      payment_required: ticket.payment_required === true,
+      payment_status: submission.payment_status ?? null,
+      is_submitted: submission.is_submitted === true,
       duplicated: !isFresh,
       email_sent: false,
     }, 201);

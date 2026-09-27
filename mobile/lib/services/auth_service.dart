@@ -116,6 +116,12 @@ class SupabaseAuthService implements AuthService {
 
   /// Creates an account. When email confirmation is enabled in Supabase the
   /// session remains null until the user confirms; callers must handle that.
+  ///
+  /// `emailRedirectTo` is passed explicitly so the confirmation link always
+  /// carries the app's deep link. Without it the link falls back to the
+  /// project's `SiteURL`, which works only while that value stays pointed at the
+  /// deep link; passing it here keeps the target with the client that issued the
+  /// request and is a no-op when `SiteURL` already matches.
   @override
   Future<void> signUp({
     required String email,
@@ -125,6 +131,7 @@ class SupabaseAuthService implements AuthService {
     await _auth.signUp(
       email: email,
       password: password,
+      emailRedirectTo: AppConfig.oauthRedirectUrl,
       data: displayName == null || displayName.trim().isEmpty
           ? null
           : {'full_name': displayName.trim()},
@@ -142,8 +149,11 @@ class SupabaseAuthService implements AuthService {
       _auth.updateUser(UserAttributes(password: newPassword));
 
   @override
-  Future<void> resendConfirmation(String email) =>
-      _auth.resend(type: OtpType.signup, email: email);
+  Future<void> resendConfirmation(String email) => _auth.resend(
+        type: OtpType.signup,
+        email: email,
+        emailRedirectTo: AppConfig.oauthRedirectUrl,
+      );
 
   /// Sends the one-time code.
   ///
@@ -183,12 +193,23 @@ class SupabaseAuthService implements AuthService {
         type: otpTypeFor(purpose),
       );
 
-  /// Re-sends the code. `resend` only accepts `signup` / `emailChange` for an
-  /// email address, so recovery re-sends through the same endpoint as the first
-  /// send. The project's per-hour email limit still applies.
+  /// Re-sends the pending email for [purpose].
+  ///
+  /// This must never call [sendEmailOtp]: `signInWithOtp` mints a *new* PKCE
+  /// code verifier and overwrites the stored one, which breaks every link that
+  /// was already emailed (`bad_code_verifier` on exchange). Re-sending through
+  /// `resend` uses the server's existing token instead and leaves any pending
+  /// verification code untouched.
+  ///
+  /// `signup` maps to `OtpType.signup`; `recovery` maps to `OtpType.recovery`,
+  /// which re-sends the link/code minted by the password-reset request. The
+  /// project's per-hour email limit still applies.
   @override
-  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) =>
-      sendEmailOtp(email, purpose);
+  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) => _auth.resend(
+        type: purpose == EmailOtpPurpose.signup ? OtpType.signup : OtpType.recovery,
+        email: email,
+        emailRedirectTo: AppConfig.oauthRedirectUrl,
+      );
 
   @override
   Future<void> signOut() => _auth.signOut();

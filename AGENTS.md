@@ -158,3 +158,96 @@ bash tests/scripts/e2e_local.sh
   only the Linux desktop target, emulator -list-avds finds nothing). APK smoke
   testing on a device must be done by the user. Do not claim the app was smoke
   tested on Android here.
+
+## Welcome ticket and submission rate limiting
+
+Account creation seeds a synthetic, hidden, closed "welcome" ticket
+(`register_type = 'phone'`, `register_value = 'WELCOME'`) that carries the
+welcome system message and the `welcome` notification. Two rules follow from it:
+
+- It must never trip `create_kyc_request`'s per-user rate limit. Its `created_at`
+  is anchored at `2000-01-01` (see `20260928000400_welcome_ticket_rate_limit.sql`)
+  so `max(created_at)` and the 24h count ignore it. If you ever re-seed welcome
+  tickets, keep that anchoring, otherwise a fresh account is wrongly told to
+  "wait a few minutes" before its first real request.
+- The Flutter UI filters it out (`register_value != 'WELCOME'`) on the home and
+  history screens; it is only reachable through the `welcome` notification, where
+  it renders as a read-only system message with no reply box.
+
+## Payment gating and the user journey wording
+
+MVola is part of every submission while the `mvola` setting is `enabled: true`:
+creating a request marks it `payment_required` and the user is told to pay
+instead of being told it was submitted. `admin_request_payment` remains
+available as an explicit admin signal, but it is no longer the only way the flag
+is set.
+
+"Officially submitted" is *derived*, never stored: `kyc_submission_state(ticket)`
+returns `payment_status` plus `is_submitted`, where `is_submitted` is true only
+when payments are off or an `mvola_payments` row for the ticket is `approved`.
+The admin email, the user confirmation email and the `request_submitted`
+notification are all produced by that approval — the only moment the request
+becomes real, and the only moment the admin mailbox is contacted.
+
+The UI must follow the same rule: `nextActionHint`, `currentStep` and
+`journeyFor` in `mobile/lib/core/kyc_journey.dart` all take `paymentRequired`
+(and `nextActionHint`/`currentStep` also take `isSubmitted`), so a request
+awaiting payment reads "pay with MVola / not yet submitted" and a validated one
+reads "received / under review". Pass `request.paymentRequired` and
+`request.isSubmitted` when calling them. `mvola_start_payment` raises
+`MVOLA_NOT_REQUIRED` only when the flag is off (payments disabled).
+
+## Keeping the backend test suites honest
+
+Two suites encode security expectations that changed with the removal of the
+user -> admin reply path:
+
+- `tests/db/run_tests.sql` asserts `user_post_message` is *refused* for every
+  authenticated caller (`permission denied`, because execute is revoked). It no
+  longer asserts a user can post.
+- The MVola sections set `payment_required` (`test_harness.new_ticket(..., true)`)
+  before opening a payment directly, while `create_kyc_request` sets it itself
+  when MVola is enabled. Sections 14b/14c and 20/21 pin the create-time gate, the
+  payments-off branch and the derived submission state.
+
+`tests/scripts/mvola_e2e.py` drives the deployed project and covers the gate: a
+start when the flag is off must return 409 `MVOLA_NOT_REQUIRED`, and an admin
+`request_payment` must flip `payment_required`. Run it with the cloud `.env`
+when the MVola migration is deployed; it provisions and deletes its own
+throwaway users.
+
+## Android push notifications (FCM)
+
+A reply from `tangoturq@gmail.com` reaches the app in every state:
+
+- **While open** — Realtime refreshes the list/badge (migration
+  `20260928000600_push_tokens_and_realtime.sql` adds `notifications` and
+  `kyc_requests` to the `supabase_realtime` publication). RLS still scopes
+  delivery, so only the owner's rows arrive.
+- **Background / closed** — the `email-webhook` Edge Function sends an FCM
+  HTTP v1 message to the ticket owner's devices after storing the reply.
+  `_shared/push.ts` holds the Firebase credential; the APK never does. The
+  payload carries only a generic title/body and the opaque `ticket_id`.
+
+Recipient rule: the push target is `kyc_requests.user_id`, resolved from the
+signature-verified webhook — never from the client. `device_tokens` is RLS-scoped
+(`user_id = auth.uid()`); registration goes through `register_device_token`,
+a SECURITY DEFINER helper so a shared device can move its token to the account
+that just signed in.
+
+Setup to make push live (both are deliberate external steps, not code):
+
+1. Create a Firebase Android app for `com.tango.kyc.tango_kyc_verification` and
+   place `google-services.json` at `mobile/android/app/` (git-ignored). The
+   Gradle build applies the `google-services` plugin only when that file exists,
+   so a checkout without it still builds; without it `FirebasePushService`
+   initialises to a harmless no-op.
+2. Set the Edge Function secrets `FIREBASE_SERVICE_ACCOUNT` (full JSON,
+   recommended) or `FIREBASE_PROJECT_ID` + `FIREBASE_CLIENT_EMAIL` +
+   `FIREBASE_PRIVATE_KEY`. With neither, `pushConfigured` is false and the
+   webhook stores the reply without a push — it never fails.
+
+`flutter_local_notifications` requires core-library desugaring; it is enabled in
+`mobile/android/app/build.gradle.kts`. Android 13+ needs `POST_NOTIFICATIONS`,
+requested at sign-in.
+

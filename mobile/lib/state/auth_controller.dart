@@ -121,8 +121,44 @@ class AuthController extends ChangeNotifier {
 
   /// Re-sends a code. The server enforces its own per-hour limit; a rejection
   /// surfaces through `lastError`.
+  ///
+  /// Implemented without `signInWithOtp`, so it cannot overwrite the PKCE code
+  /// verifier that a pending confirmation link depends on.
   Future<bool> resendEmailOtp({required String email, required EmailOtpPurpose purpose}) =>
       run(() => _auth.resendEmailOtp(email, purpose));
+
+  /// True while a deep link is being consumed. Guards against a second delivery
+  /// of the same link triggering a concurrent token exchange: the PKCE verifier
+  /// is single-use, so a duplicate exchange would fail and could surface a
+  /// spurious error.
+  bool _handlingCallback = false;
+
+  /// Consumes an OAuth or confirmation deep link exactly once.
+  ///
+  /// Delegates to the auth library, which exchanges the `?code=` using the
+  /// stored PKCE verifier. A delivery that overlaps an in-flight exchange, and
+  /// a link that carries no auth parameters, both return
+  /// [AuthCallbackOutcome.notAuthenticated] without throwing, so the caller
+  /// never has to special-case either.
+  Future<AuthCallbackOutcome> handleCallback(Uri uri) async {
+    if (_handlingCallback) {
+      return AuthCallbackOutcome.notAuthenticated;
+    }
+    _handlingCallback = true;
+    try {
+      final outcome = await _auth.handleAuthCallback(uri);
+      if (outcome != AuthCallbackOutcome.notAuthenticated) {
+        // The exchange already stored the session; reflect it here so routing
+        // does not depend on the auth-state event arriving first.
+        _session = _auth.session;
+        if (_session != null) await _loadProfile();
+        notifyListeners();
+      }
+      return outcome;
+    } finally {
+      _handlingCallback = false;
+    }
+  }
 
   Future<bool> signInWithGoogle() => run(() async {
         final started = await _auth.signInWithGoogle();

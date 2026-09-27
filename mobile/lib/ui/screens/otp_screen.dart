@@ -20,7 +20,7 @@ import 'package:provider/provider.dart';
 import '../../core/validators.dart';
 import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
-import '../theme/app_theme.dart';
+import '../widgets/aurora.dart';
 import 'reset_password_screen.dart';
 
 /// How many digits Supabase currently mails for this project.
@@ -68,7 +68,9 @@ class _OtpScreenState extends State<OtpScreen> {
   void initState() {
     super.initState();
     _startCooldown();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _focusNode.requestFocus(),
+    );
   }
 
   @override
@@ -104,7 +106,10 @@ class _OtpScreenState extends State<OtpScreen> {
     FocusScope.of(context).unfocus();
     final code = _codeController.text.trim();
     if (code.length != kEmailOtpLength) {
-      setState(() => _error = 'Enter the $kEmailOtpLength-digit code from your email.');
+      setState(
+        () => _error =
+            'Saisissez le code à $kEmailOtpLength chiffres reçu par email.',
+      );
       return;
     }
 
@@ -141,7 +146,10 @@ class _OtpScreenState extends State<OtpScreen> {
   Future<void> _resend() async {
     if (_secondsLeft > 0) return;
     final auth = context.read<AuthController>();
-    final ok = await auth.resendEmailOtp(email: widget.email, purpose: widget.purpose);
+    final ok = await auth.resendEmailOtp(
+      email: widget.email,
+      purpose: widget.purpose,
+    );
     if (!mounted) return;
 
     if (!ok) {
@@ -155,7 +163,7 @@ class _OtpScreenState extends State<OtpScreen> {
     });
     _startCooldown();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('A new code is on its way.')),
+      const SnackBar(content: Text('Un nouveau code est en route.')),
     );
   }
 
@@ -166,113 +174,119 @@ class _OtpScreenState extends State<OtpScreen> {
     final busy = auth.busy;
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: Text(widget.isRecovery ? 'Verify your identity' : 'Confirm your email'),
+        title: Text(
+          widget.isRecovery
+              ? 'Vérifiez votre identité'
+              : 'Confirmez votre email',
+        ),
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 8),
-                  Container(
-                    height: 68,
-                    width: 68,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      gradient: AppTheme.heroGradient(theme.brightness),
-                      borderRadius: BorderRadius.circular(22),
+      body: AuroraBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 8),
+                    const LogoMark(
+                      size: 68,
+                      animate: false,
+                      iconSize: 34,
+                      icon: Icons.lock_person_rounded,
                     ),
-                    child: const Icon(Icons.lock_person_rounded, size: 34, color: AppTheme.onHero),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Enter your code',
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'We emailed a $kEmailOtpLength-digit code to ${widget.email}. '
-                    'Enter it below to continue.',
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 28),
-                  TextField(
-                    controller: _codeController,
-                    focusNode: _focusNode,
-                    enabled: !busy,
-                    autofocus: false,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.done,
-                    textAlign: TextAlign.center,
-                    autofillHints: const [AutofillHints.oneTimeCode],
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(kEmailOtpLength),
-                    ],
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 10,
+                    const SizedBox(height: 24),
+                    Text(
+                      'Entrez votre code',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    onChanged: (_) {
-                      if (_error != null) setState(() => _error = null);
-                      setState(() {});
-                    },
-                    onSubmitted: (_) => _isComplete && !busy ? _verify() : null,
-                    decoration: InputDecoration(
-                      hintText: '0' * kEmailOtpLength,
-                      hintStyle: theme.textTheme.headlineSmall?.copyWith(
+                    const SizedBox(height: 10),
+                    Text(
+                      'Nous avons envoyé un code à $kEmailOtpLength chiffres à ${widget.email}. '
+                      'Saisissez-le ci-dessous pour continuer.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    TextField(
+                      controller: _codeController,
+                      focusNode: _focusNode,
+                      enabled: !busy,
+                      autofocus: false,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      textAlign: TextAlign.center,
+                      autofillHints: const [AutofillHints.oneTimeCode],
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(kEmailOtpLength),
+                      ],
+                      style: theme.textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         letterSpacing: 10,
-                        color: theme.colorScheme.outlineVariant,
                       ),
-                      errorText: _error,
-                      counterText: '',
-                    ),
-                  ),
-                  if (_failedAttempts > 0) ...[
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Icon(Icons.info_outline_rounded,
-                            size: 18, color: theme.colorScheme.onSurfaceVariant),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Codes expire after an hour. If yours has expired, request a new one.',
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                          ),
+                      onChanged: (_) {
+                        if (_error != null) setState(() => _error = null);
+                        setState(() {});
+                      },
+                      onSubmitted: (_) =>
+                          _isComplete && !busy ? _verify() : null,
+                      decoration: InputDecoration(
+                        hintText: '0' * kEmailOtpLength,
+                        hintStyle: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 10,
+                          color: theme.colorScheme.outlineVariant,
                         ),
-                      ],
+                        errorText: _error,
+                        counterText: '',
+                      ),
+                    ),
+                    if (_failedAttempts > 0) ...[
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 18,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Les codes expirent au bout d’une heure. S’il a expiré, demandez-en un nouveau.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 28),
+                    GradientButton(
+                      onPressed: busy || !_isComplete ? null : _verify,
+                      busy: busy,
+                      child: const Text('Vérifier le code'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: (busy || _secondsLeft > 0) ? null : _resend,
+                      child: Text(
+                        _secondsLeft > 0
+                            ? 'Renvoyer le code dans ${_secondsLeft}s'
+                            : 'Renvoyer le code',
+                      ),
                     ),
                   ],
-                  const SizedBox(height: 28),
-                  FilledButton(
-                    onPressed: busy || !_isComplete ? null : _verify,
-                    child: busy
-                        ? const SizedBox(
-                            height: 22,
-                            width: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2.4),
-                          )
-                        : const Text('Verify code'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: (busy || _secondsLeft > 0) ? null : _resend,
-                    child: Text(
-                      _secondsLeft > 0
-                          ? 'Resend code in ${_secondsLeft}s'
-                          : 'Resend code',
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

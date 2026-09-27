@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
+import 'aurora.dart';
 
 /// A rounded, colour-coded status pill.
 class StatusPill extends StatelessWidget {
@@ -16,10 +17,11 @@ class StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = switch (status) {
-      KycStatus.pending => const Color(0xFFB26A00),
-      KycStatus.inReview => const Color(0xFF1D6FB8),
-      KycStatus.replied => const Color(0xFF2E7D32),
+      KycStatus.pending => isDark ? const Color(0xFFFFC24B) : const Color(0xFFB26A00),
+      KycStatus.inReview => isDark ? const Color(0xFF5CC8FF) : const Color(0xFF1D6FB8),
+      KycStatus.replied => isDark ? const Color(0xFF52E39B) : const Color(0xFF2E7D32),
       KycStatus.closed => scheme.onSurfaceVariant,
     };
 
@@ -239,7 +241,9 @@ class LabeledField extends StatelessWidget {
   }
 }
 
-/// A lightly animated card that fades and lifts its content into place.
+/// A lightly animated wrapper that fades and lifts its content into place.
+///
+/// Kept for call-site compatibility; it now delegates to the shared [Reveal].
 class AnimatedEntry extends StatelessWidget {
   const AnimatedEntry({super.key, required this.child, this.delay = Duration.zero});
 
@@ -247,18 +251,7 @@ class AnimatedEntry extends StatelessWidget {
   final Duration delay;
 
   @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: 320 + delay.inMilliseconds),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) => Opacity(
-        opacity: value,
-        child: Transform.translate(offset: Offset(0, 12 * (1 - value)), child: child),
-      ),
-      child: child,
-    );
-  }
+  Widget build(BuildContext context) => Reveal(delay: delay, child: child);
 }
 
 /// A key/value card used to summarise a ticket.

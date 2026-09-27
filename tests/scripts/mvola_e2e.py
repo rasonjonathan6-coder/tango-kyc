@@ -110,7 +110,7 @@ def main():
     suffix = "mvola-e2e-1"
     user_a_email = f"user.a+{suffix}@example.com"
     user_b_email = f"user.b+{suffix}@example.com"
-    admin_email = ENV.get("ADMIN_EMAIL", "rasonjonathan6@gmail.com")
+    admin_email = ENV.get("ADMIN_EMAIL", "rason<secret-hidden>6@gmail.com")
     password = "Password123!"
 
     print("== Setup: users ==")
@@ -169,7 +169,15 @@ def main():
     )
     check("instructions are provided", bool(config.get("instructions")))
 
-    print("\n== 3. Start a payment ==")
+    print("\n== 3. A fresh request is gated on the MVola payment ==")
+    check("ticket creation marks the request payment required",
+          ticket_a.get("payment_required") is True, str(ticket_a))
+    check("the request is not yet submitted",
+          ticket_a.get("is_submitted") is False, str(ticket_a))
+    check("the submission state is awaiting_submission",
+          ticket_a.get("payment_status") == "awaiting_submission", str(ticket_a))
+
+    print("\n== 4. Start a payment ==")
     status, started = call_fn("mvola-payments", {"action": "start", "ticket_id": ticket_a_id}, token_a)
     check("start succeeds", status == 200, f"{status} {started}")
     payment = (started or {}).get("payment", {})
@@ -179,7 +187,7 @@ def main():
     check("the amount came from the server", float(payment.get("amount", 0)) == 20000, str(payment))
     check("the payment is not yet submitted", payment.get("submitted_at") in (None, ""), str(payment))
 
-    print("\n== 4. Double payment protection ==")
+    print("\n== 4b. Double payment protection ==")
     status, again = call_fn("mvola-payments", {"action": "start", "ticket_id": ticket_a_id}, token_a)
     check("a second start succeeds", status == 200, f"{status} {again}")
     check(

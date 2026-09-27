@@ -135,6 +135,7 @@ class _MvolaPaymentScreenState extends State<MvolaPaymentScreen> {
     final controller = context.watch<MvolaController>();
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Mobile Money payment'),
         actions: [

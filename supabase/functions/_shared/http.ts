@@ -48,6 +48,7 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   MVOLA_NOT_CONFIGURED: { message: "Mobile Money payment is not available right now.", status: 503 },
   MVOLA_DISABLED: { message: "Mobile Money payment is not available right now.", status: 503 },
   MVOLA_UNAVAILABLE: { message: "Mobile Money payment is not available right now.", status: 503 },
+  MVOLA_NOT_REQUIRED: { message: "No payment is required for this request.", status: 409 },
   MVOLA_REFERENCE_REQUIRED: { message: "Please enter your MVola transaction reference.", status: 422 },
   MVOLA_REFERENCE_INVALID: { message: "This transaction reference is not valid.", status: 422 },
   MVOLA_PAYER_INVALID: { message: "Please enter a valid phone number.", status: 422 },
@@ -118,6 +119,7 @@ export function translateDbError(error: { message?: string; code?: string } | nu
     "MVOLA_NOT_CONFIGURED",
     "MVOLA_UNAVAILABLE",
     "MVOLA_DISABLED",
+    "MVOLA_NOT_REQUIRED",
   ];
   for (const code of known) {
     if (raw.includes(code)) {
