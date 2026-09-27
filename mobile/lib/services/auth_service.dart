@@ -42,7 +42,7 @@ enum EmailOtpPurpose {
 
 /// Maps the narrow app purpose onto the auth library's `OtpType`.
 OtpType otpTypeFor(EmailOtpPurpose purpose) => switch (purpose) {
-      EmailOtpPurpose.signup => OtpType.signup,
+      EmailOtpPurpose.signup => OtpType.email,
       EmailOtpPurpose.recovery => OtpType.recovery,
     };
 

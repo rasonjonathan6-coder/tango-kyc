@@ -1,9 +1,13 @@
 /**
  * Email delivery and receipt for the Tango KYC Edge Functions.
  *
- * OUTBOUND: Resend (REST API). See ./resend-outbound.ts.
- * INBOUND:  Resend. `fetchReceivedEmail` below is unchanged and still uses
- *           EMAIL_API_KEY; the `email.received` webhook keeps working as before.
+ * OUTBOUND: selected by `EMAIL_TRANSPORT` — Resend (REST API,
+ *           ./resend-outbound.ts) or Gmail (REST API, ./gmail-outbound.ts).
+ *           Defaults to Resend so existing deployments are unchanged; the
+ *           Gmail path is opt-in and Resend stays available for rollback.
+ * INBOUND:  Resend, always. `fetchReceivedEmail` below is unchanged and still
+ *           uses EMAIL_API_KEY; the `email.received` webhook keeps working as
+ *           before regardless of which transport sends the outbound mail.
  *
  * `replyToAddress` deliberately keeps routing replies to the Resend inbound
  * address, so the existing reply-to-ticket association is untouched.
@@ -16,6 +20,11 @@
 import { AppError } from "./http.ts";
 import { env, requireEnv, serviceClient } from "./clients.ts";
 import { sendResendMessage } from "./resend-outbound.ts";
+import {
+  gmailConfigured,
+  gmailCredentialsFromEnv,
+  sendGmailMessage,
+} from "./gmail-outbound.ts";
 
 const RESEND_API = "https://api.resend.com";
 
@@ -65,31 +74,52 @@ export interface SendEmailResult {
   suppressed?: boolean;
 }
 
+/** The outbound transports this module can drive. */
+export type EmailTransport = "resend" | "gmail";
+
+/**
+ * Which outbound transport to use.
+ *
+ * Defaults to `resend`, so a deployment that sets nothing keeps its previous
+ * behaviour and the Gmail path is strictly opt-in. Rollback is therefore a
+ * configuration change (`EMAIL_TRANSPORT=resend`), not a code change, and the
+ * Resend transport stays present and usable throughout.
+ */
+export function emailTransport(): EmailTransport {
+  return env("EMAIL_TRANSPORT").trim().toLowerCase() === "gmail" ? "gmail" : "resend";
+}
+
 /**
  * Resolves the Resend API key used for outbound sending.
  *
  * `RESEND_API_KEY` is preferred so outbound can later be scoped to its own
  * credential. When it is absent the existing `EMAIL_API_KEY` is reused: it is
  * already a Resend key (the inbound path uses it), so no new secret is invented
- * and no value is ever hardcoded here.
+ * and no value is ever hardcoded here. This path is retained for rollback.
  */
 function outboundApiKey(): string {
   return env("RESEND_API_KEY") || env("EMAIL_API_KEY");
 }
 
-/** True when outbound email (Resend) is fully configured. */
+/** True when the selected outbound transport is fully configured. */
 export function emailSendingConfigured(): boolean {
-  return outboundApiKey().length > 0;
+  return emailTransport() === "gmail"
+    ? gmailConfigured()
+    : outboundApiKey().length > 0;
 }
 
 /**
- * The outbound sender.
+ * The outbound sender for the selected transport.
  *
- * `RESEND_FROM_EMAIL` wins when set. Otherwise the Resend sandbox sender is
- * used, which needs no verified domain — but note that Resend only permits it
- * to deliver to the account owner's own address.
+ * Resend uses `RESEND_FROM_EMAIL` (or its sandbox sender when unset). Gmail
+ * uses the authenticated account from `GMAIL_FROM_EMAIL`; the display name is
+ * composed by the Gmail MIME builder from `GMAIL_SENDER_NAME`.
  */
 export function fromAddress(): string {
+  if (emailTransport() === "gmail") {
+    const creds = gmailCredentialsFromEnv();
+    if (creds) return creds.fromEmail;
+  }
   return env("RESEND_FROM_EMAIL") || DEFAULT_RESEND_FROM;
 }
 
@@ -205,21 +235,44 @@ async function recordOutboundSend(key: string): Promise<void> {
 }
 
 /**
- * Sends a transactional email through Resend.
+ * Sends a transactional email through the configured transport.
  *
  * When `idempotencyKey` is supplied, a send already recorded within the
  * suppression window is skipped, so a retried call cannot produce a second
- * notification. The guarantee is kept here through the `email_events` ledger,
- * and the key is additionally forwarded as Resend's `Idempotency-Key`.
+ * notification. That guarantee lives here, in the provider-agnostic
+ * `email_events` ledger, so it holds for both Resend and Gmail — Gmail offers
+ * no native idempotency key, while Resend's is forwarded as defence in depth.
+ *
+ * The selected transport is chosen by `EMAIL_TRANSPORT` (see `emailTransport`).
  */
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
+  const transport = emailTransport();
+
+  if (transport === "gmail") {
+    const creds = gmailCredentialsFromEnv();
+    if (!creds) {
+      console.error("EMAIL_TRANSPORT=gmail but the GMAIL_* secrets are incomplete");
+      throw new AppError("SERVICE_NOT_CONFIGURED", "Gmail transport is not configured", 503);
+    }
+    return sendViaGmail(args, creds);
+  }
+
   const apiKey = outboundApiKey();
   if (!apiKey) {
     console.error("No Resend API key is configured (RESEND_API_KEY / EMAIL_API_KEY)");
     throw new AppError("SERVICE_NOT_CONFIGURED", "Resend API key is not configured", 503);
   }
-  const from = fromAddress();
+  return sendViaResend(args, apiKey);
+}
 
+/**
+ * Runs the shared idempotency check, the transport call, and the ledger write.
+ * `dispatch` returns the provider message id to record.
+ */
+async function deliver(
+  args: SendEmailArgs,
+  dispatch: () => Promise<{ id: string }>,
+): Promise<SendEmailResult> {
   if (args.idempotencyKey) {
     const recent = await findRecentSend(args.idempotencyKey);
     if (recent?.id) {
@@ -228,25 +281,52 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     }
   }
 
-  const result = await sendResendMessage(
-    {
-      from,
-      to: args.to,
-      subject: args.subject,
-      text: args.text,
-      html: args.html,
-      replyTo: args.replyTo,
-      headers: args.headers,
-      idempotencyKey: args.idempotencyKey,
-    },
-    apiKey,
-  );
+  const result = await dispatch();
 
   if (args.idempotencyKey) {
     await recordOutboundSend(args.idempotencyKey);
   }
 
   return { id: result.id };
+}
+
+function sendViaResend(args: SendEmailArgs, apiKey: string): Promise<SendEmailResult> {
+  const from = fromAddress();
+  return deliver(args, () =>
+    sendResendMessage(
+      {
+        from,
+        to: args.to,
+        subject: args.subject,
+        text: args.text,
+        html: args.html,
+        replyTo: args.replyTo,
+        headers: args.headers,
+        idempotencyKey: args.idempotencyKey,
+      },
+      apiKey,
+    ),
+  );
+}
+
+function sendViaGmail(
+  args: SendEmailArgs,
+  creds: ReturnType<typeof gmailCredentialsFromEnv> & object,
+): Promise<SendEmailResult> {
+  return deliver(args, () =>
+    sendGmailMessage(
+      {
+        to: args.to,
+        subject: args.subject,
+        text: args.text,
+        html: args.html,
+        replyTo: args.replyTo,
+        headers: args.headers,
+        idempotencyKey: args.idempotencyKey,
+      },
+      creds,
+    ),
+  );
 }
 
 /**
