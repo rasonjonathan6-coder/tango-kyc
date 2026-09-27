@@ -251,3 +251,30 @@ Setup to make push live (both are deliberate external steps, not code):
 `mobile/android/app/build.gradle.kts`. Android 13+ needs `POST_NOTIFICATIONS`,
 requested at sign-in.
 
+
+
+## UI design system (dark neon) — 2026-09-27
+
+- mobile/lib/ui/theme/app_theme.dart is the single source of truth: near-black
+  navy canvas (AppColors.canvasDark), violet/magenta auras, brandGradient,
+  glassy dark input fields. Both brightnesses derive from the same tokens.
+- mobile/lib/ui/widgets/aurora.dart holds AuroraBackground, LogoMark,
+  GradientButton and the press-scale wrapper. AuroraBackground is a no-op when
+  the app-level backdrop is already active, and it only animates when explicitly
+  asked (animate: true). The app opts in once via MaterialApp.builder in
+  main.dart (animate: !kIsWeb); a nested backdrop is static so pumpAndSettle()
+  in widget tests always settles.
+- Screens mount their own Scaffold (for AppBar/back) but set
+  backgroundColor: Colors.transparent so the single root aurora shows through.
+- Copy is French across auth, OTP, home, requests, settings, profile, admin and
+  onboarding. The French strings are asserted in mobile/test/screens_test.dart
+  and mobile/test/otp_test.dart.
+
+## Verification commands
+
+- cd mobile && flutter analyze && flutter test must stay at 0 issues and all
+  tests green.
+- cd supabase/functions && deno test --no-check --allow-env --allow-net tests/
+  --no-check skips two pre-existing Deno 2.x type errors (crypto.subtle
+  importKey Uint8Array variance, and a std helper); runtime behaviour is
+  unaffected.
