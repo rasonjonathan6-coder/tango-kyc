@@ -278,3 +278,27 @@ requested at sign-in.
   --no-check skips two pre-existing Deno 2.x type errors (crypto.subtle
   importKey Uint8Array variance, and a std helper); runtime behaviour is
   unaffected.
+
+
+## Building the release APK (verified 2026-09-28)
+
+The toolchain is not on PATH and the JDK is not preinstalled. Full recipe:
+
+    sudo apt-get install -y openjdk-21-jdk-headless     # only if `java` is missing
+    export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+    export ANDROID_HOME=/workspace/sdk/android
+    export ANDROID_SDK_ROOT=$ANDROID_HOME
+    export PATH=/workspace/sdk/flutter/bin:$JAVA_HOME/bin:$PATH
+    cd mobile && flutter pub get && flutter build apk --release
+
+Notes:
+- Flutter lives at /workspace/sdk/flutter (not on PATH by default).
+- The Android SDK lives at /workspace/sdk/android; android/local.properties may
+  still point at /tmp/android-sdk, so export ANDROID_HOME explicitly.
+- .dart_tool/package_config.json can hold stale absolute paths after an
+  environment move (/tmp/sdk/flutter, a wiped pub cache). `flutter pub get`
+  rewrites it and re-downloads the app packages; the cache reset only leaves the
+  Flutter SDK packages behind.
+- Output: mobile/build/app/outputs/flutter-apk/app-release.apk (~56 MB).
+- Published for download by copying it to /workspace/public_apk/ and serving that
+  directory: python3 -m http.server 12000 --bind 0.0.0.0.
