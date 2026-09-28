@@ -270,10 +270,39 @@ requested at sign-in.
   onboarding. The French strings are asserted in mobile/test/screens_test.dart
   and mobile/test/otp_test.dart.
 
+## Login screen (premium auth pass) — 2026-09-28
+
+- mobile/lib/ui/widgets/auth_kit.dart owns the auth visual kit: AuthHalo (the
+  static five-pool magenta/violet/rose/cyan backdrop, layered over the app-level
+  aurora), BrandLockup (mark + "Tango" + gradient "Live" badge), NeonField
+  (glass field framed by a 1.6dp gradient hairline, large leading icon, lavender
+  label, focus bloom), GlassActionCard (tappable glass surface), GoogleGlyph
+  (the four-colour ring, painted — the project ships no Google asset),
+  OrDivider and AuthFooter.
+- mobile/lib/ui/screens/login_screen.dart is presentation-only. Every handler is
+  the pre-existing one: same AuthController calls, same Validators, same routes
+  to ForgotPasswordScreen / RegisterScreen / OtpScreen. Do not re-implement any
+  auth flow here.
+- AppTheme.actionGradient (rose #FF0A8A → violet #A000FF → electric #168CFF) is
+  the primary action fill; AppTheme.neonHairline frames the fields. New neon
+  tokens: AppColors.rose / .electric / .cyan.
+- GradientButton now takes optional radius, gradient and textStyle; existing
+  call sites are unaffected.
+- Layout targets 1080x2400 (360x800 logical). The secondary entries go two-column
+  at >= 300dp of available width and stack below that. The body is a
+  SingleChildScrollView so the keyboard never traps the user; the primary action
+  stays reachable by scrolling on every tested viewport.
+- Avoid CrossAxisAlignment.stretch inside a scroll view: it forces an infinite
+  height. Use IntrinsicHeight when two cards must share a row height.
+- mobile/test/login_screen_test.dart asserts the visual system, responsive
+  behaviour, keyboard behaviour and that each entry point reaches its real
+  handler. Its layout assertions are relative (top/left ordering) because the
+  test font's metrics differ from the platform font's.
+
 ## Verification commands
 
 - cd mobile && flutter analyze && flutter test must stay at 0 issues and all
-  tests green.
+  tests green. Baseline after the premium auth pass: 166 tests.
 - cd supabase/functions && deno test --no-check --allow-env --allow-net tests/
   --no-check skips two pre-existing Deno 2.x type errors (crypto.subtle
   importKey Uint8Array variance, and a std helper); runtime behaviour is

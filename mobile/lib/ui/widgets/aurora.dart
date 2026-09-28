@@ -230,14 +230,26 @@ class GradientButton extends StatefulWidget {
     required this.child,
     this.icon,
     this.height = 56,
+    this.radius,
     this.busy = false,
+    this.gradient,
+    this.textStyle,
   });
 
   final VoidCallback? onPressed;
   final Widget child;
   final IconData? icon;
   final double height;
+
+  /// Corner radius. Defaults to the shared medium radius.
+  final double? radius;
   final bool busy;
+
+  /// Overrides the fill; defaults to [AppTheme.brandGradient].
+  final Gradient? gradient;
+
+  /// Overrides the label style, so a screen can size its primary action.
+  final TextStyle? textStyle;
 
   @override
   State<GradientButton> createState() => _GradientButtonState();
@@ -250,7 +262,7 @@ class _GradientButtonState extends State<GradientButton> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final enabled = widget.onPressed != null && !widget.busy;
-    final radius = BorderRadius.circular(AppRadius.md);
+    final radius = BorderRadius.circular(widget.radius ?? AppRadius.md);
 
     return AnimatedScale(
       scale: _pressed ? 0.975 : 1,
@@ -260,7 +272,7 @@ class _GradientButtonState extends State<GradientButton> {
         opacity: enabled ? 1 : 0.55,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            gradient: AppTheme.brandGradient,
+            gradient: widget.gradient ?? AppTheme.brandGradient,
             borderRadius: radius,
             boxShadow: enabled
                 ? AppTheme.glow(AppColors.violet,
@@ -297,12 +309,13 @@ class _GradientButtonState extends State<GradientButton> {
                               const SizedBox(width: 10),
                             ],
                             DefaultTextStyle(
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.2,
-                              ),
+                              style: widget.textStyle ??
+                                  const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.2,
+                                  ),
                               child: widget.child,
                             ),
                           ],

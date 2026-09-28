@@ -1,8 +1,13 @@
 /// Sign-in screen.
 ///
-/// Follows the product artwork: an animated aurora canvas, the brand mark, the
-/// email/password pair, the gradient primary action, Google sign-in and the two
-/// secondary entry points (passwordless code, account creation).
+/// Premium dark presentation: a near-black canvas lit by magenta/violet/blue
+/// halos, the brand lockup, a two-line gradient title, glassy neon fields, the
+/// rose→violet→electric primary action, Google sign-in and the two secondary
+/// entry points (passwordless code, account creation).
+///
+/// Presentation only. Every handler below is the pre-existing one — the same
+/// [AuthController] calls, the same validators, the same routes — so the visual
+/// overhaul changed nothing about how authentication works.
 library;
 
 import 'package:flutter/material.dart';
@@ -13,7 +18,7 @@ import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/aurora.dart';
-import '../widgets/common.dart';
+import '../widgets/auth_kit.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import 'otp_screen.dart';
@@ -87,30 +92,35 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
-    final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: AuroraBackground(
+      body: AuthHalo(
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(22, 8, 22, 12),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
+                constraints: const BoxConstraints(maxWidth: 440),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Reveal(child: _Header()),
-                      const SizedBox(height: 30),
+                      const Reveal(child: Center(child: BrandLockup())),
+                      const SizedBox(height: 12),
+                      const Reveal(delay: Duration(milliseconds: 50), child: _Title()),
+                      const SizedBox(height: 8),
+                      const Reveal(delay: Duration(milliseconds: 80), child: _Subtitle()),
+                      const SizedBox(height: 14),
                       Reveal(
-                        delay: const Duration(milliseconds: 60),
-                        child: LabeledField(
+                        delay: const Duration(milliseconds: 110),
+                        child: NeonField(
                           label: 'Email',
                           controller: _emailController,
                           hint: 'vous@exemple.com',
+                          icon: Icons.alternate_email_rounded,
                           keyboardType: TextInputType.emailAddress,
                           textInputAction: TextInputAction.next,
                           autofillHints: const [AutofillHints.email],
@@ -118,109 +128,96 @@ class _LoginScreenState extends State<LoginScreen> {
                           validator: Validators.validateEmail,
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 12),
                       Reveal(
-                        delay: const Duration(milliseconds: 90),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Mot de passe',
-                                style: theme.textTheme.labelLarge
-                                    ?.copyWith(fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 8),
-                            TextFormField(
-                              controller: _passwordController,
-                              obscureText: _obscure,
-                              enabled: !auth.busy,
-                              textInputAction: TextInputAction.done,
-                              autofillHints: const [AutofillHints.password],
-                              onFieldSubmitted: (_) => _submit(),
-                              validator: (value) => (value ?? '').isEmpty
-                                  ? 'Veuillez saisir votre mot de passe.'
-                                  : null,
-                              decoration: InputDecoration(
-                                hintText: 'Votre mot de passe',
-                                suffixIcon: IconButton(
-                                  icon: Icon(_obscure
-                                      ? Icons.visibility_off_rounded
-                                      : Icons.visibility_rounded),
-                                  onPressed: () => setState(() => _obscure = !_obscure),
-                                  tooltip: _obscure ? 'Afficher' : 'Masquer',
-                                ),
+                        delay: const Duration(milliseconds: 140),
+                        child: NeonField(
+                          label: 'Mot de passe',
+                          controller: _passwordController,
+                          hint: 'Votre mot de passe',
+                          icon: Icons.lock_rounded,
+                          obscureText: _obscure,
+                          enabled: !auth.busy,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          onSubmitted: (_) => _submit(),
+                          validator: (value) => (value ?? '').isEmpty
+                              ? 'Veuillez saisir votre mot de passe.'
+                              : null,
+                          suffix: _EyeToggle(
+                            obscure: _obscure,
+                            onPressed: () => setState(() => _obscure = !_obscure),
+                          ),
+                        ),
+                      ),
+                      Reveal(
+                        delay: const Duration(milliseconds: 160),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: auth.busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                                    ),
+                            iconAlignment: IconAlignment.end,
+                            icon: const Icon(Icons.chevron_right_rounded, size: 18),
+                            label: const Text('Mot de passe oublié ?'),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              foregroundColor: AppColors.magenta,
+                              textStyle: const TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: auth.busy
-                              ? null
-                              : () => Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
-                                  ),
-                          child: const Text('Mot de passe oublié ?'),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Reveal(
-                        delay: const Duration(milliseconds: 120),
-                        child: GradientButton(
-                          onPressed: auth.busy ? null : _submit,
-                          busy: auth.busy,
-                          child: const Text('Se connecter'),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      Reveal(
-                        delay: const Duration(milliseconds: 150),
-                        child: Row(
-                          children: [
-                            const Expanded(child: Divider()),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              child: Text('ou', style: theme.textTheme.bodySmall),
-                            ),
-                            const Expanded(child: Divider()),
-                          ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),
                       Reveal(
-                        delay: const Duration(milliseconds: 180),
-                        child: OutlinedButton.icon(
-                          onPressed: auth.busy ? null : _google,
-                          icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                          label: const Text('Continuer avec Google'),
+                        delay: const Duration(milliseconds: 190),
+                        child: GradientButton(
+                          onPressed: auth.busy ? null : _submit,
+                          busy: auth.busy,
+                          height: 64,
+                          radius: 34,
+                          gradient: AppTheme.actionGradient,
+                          icon: Icons.login_rounded,
+                          textStyle: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
+                          ),
+                          child: const Text('Se connecter'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Reveal(delay: Duration(milliseconds: 220), child: OrDivider()),
+                      const SizedBox(height: 10),
+                      Reveal(
+                        delay: const Duration(milliseconds: 250),
+                        child: _GoogleCard(
+                          enabled: !auth.busy,
+                          onPressed: _google,
                         ),
                       ),
                       const SizedBox(height: 10),
                       Reveal(
-                        delay: const Duration(milliseconds: 210),
-                        child: _SecondaryRow(
-                          prompt: 'Préférer un code ?',
-                          action: 'Se connecter avec un code',
-                          onPressed: auth.busy ? null : _startCodeSignIn,
+                        delay: const Duration(milliseconds: 280),
+                        child: _SecondaryOptions(
+                          enabled: !auth.busy,
+                          onCode: _startCodeSignIn,
+                          onRegister: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                          ),
                         ),
                       ),
-                      Reveal(
-                        delay: const Duration(milliseconds: 240),
-                        child: _SecondaryRow(
-                          prompt: 'Nouveau ici ?',
-                          action: 'Créer un compte',
-                          onPressed: auth.busy
-                              ? null
-                              : () => Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                                  ),
-                        ),
-                      ),
-                      const SizedBox(height: 26),
-                      const Reveal(
-                        delay: Duration(milliseconds: 280),
-                        child: _Footer(),
-                      ),
+                      const SizedBox(height: 12),
+                      const Reveal(delay: Duration(milliseconds: 310), child: AuthFooter()),
                     ],
                   ),
                 ),
@@ -233,91 +230,220 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-/// Brand mark, wordmark and one-line value proposition.
-class _Header extends StatelessWidget {
-  const _Header();
+/// The gradient two-line title, wrapping naturally on narrow screens.
+class _Title extends StatelessWidget {
+  const _Title();
+
+  static const TextStyle _base = TextStyle(
+    fontSize: 33,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -0.6,
+    height: 1.08,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 9,
+      runSpacing: 2,
       children: [
-        const LogoMark(size: 78),
-        const SizedBox(height: 22),
+        Text('Tango', style: _base.copyWith(color: Colors.white)),
         ShaderMask(
           shaderCallback: (bounds) => AppTheme.brandGradient.createShader(bounds),
-          child: Text(
-            'Tango KYC Verification',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
+          child: Text('KYC', style: _base.copyWith(color: Colors.white)),
+        ),
+        Text('Verification', style: _base.copyWith(color: Colors.white)),
+      ],
+    );
+  }
+}
+
+class _Subtitle extends StatelessWidget {
+  const _Subtitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Vérifiez votre compte pour profiter\nde toutes les fonctionnalités.',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: const Color(0xFFC3B2E6).withValues(alpha: 0.82),
+        fontSize: 16,
+        height: 1.45,
+        fontWeight: FontWeight.w400,
+      ),
+    );
+  }
+}
+
+/// The eye affordance on the password field, sized for a comfortable tap target.
+class _EyeToggle extends StatelessWidget {
+  const _EyeToggle({required this.obscure, required this.onPressed});
+
+  final bool obscure;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        tooltip: obscure ? 'Afficher' : 'Masquer',
+        icon: Icon(
+          obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+          size: 22,
+          color: const Color(0xFFB9A9D8),
+        ),
+      ),
+    );
+  }
+}
+
+class _GoogleCard extends StatelessWidget {
+  const _GoogleCard({required this.enabled, required this.onPressed});
+
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassActionCard(
+      onTap: onPressed,
+      enabled: enabled,
+      height: 58,
+      radius: 30,
+      child: Row(
+        children: [
+          const GoogleGlyph(size: 24),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Text(
+              'Continuer avec Google',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Vérifiez votre compte pour profiter de toutes les fonctionnalités.',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
-      ],
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 22,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// "Prompt? action" pair rendered as a centred, wrapping row.
-class _SecondaryRow extends StatelessWidget {
-  const _SecondaryRow({
-    required this.prompt,
-    required this.action,
-    required this.onPressed,
+/// The two secondary entries: passwordless code and account creation.
+///
+/// Two columns when the width allows, stacked when it does not.
+class _SecondaryOptions extends StatelessWidget {
+  const _SecondaryOptions({
+    required this.enabled,
+    required this.onCode,
+    required this.onRegister,
   });
 
-  final String prompt;
-  final String action;
-  final VoidCallback? onPressed;
+  final bool enabled;
+  final VoidCallback onCode;
+  final VoidCallback onRegister;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Flexible(
-          child: Text(prompt, style: theme.textTheme.bodyMedium, overflow: TextOverflow.ellipsis),
-        ),
-        Flexible(
-          child: TextButton(
-            onPressed: onPressed,
-            child: Text(action, overflow: TextOverflow.ellipsis),
-          ),
-        ),
-      ],
+    final code = _OptionCard(
+      icon: Icons.qr_code_2_rounded,
+      prompt: 'Préférer un code ?',
+      action: 'Se connecter avec un code',
+      enabled: enabled,
+      onTap: onCode,
+    );
+    final register = _OptionCard(
+      icon: Icons.person_add_alt_1_rounded,
+      prompt: 'Nouveau ici ?',
+      action: 'Créer un compte',
+      enabled: enabled,
+      onTap: onRegister,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 300dp is roughly two comfortable cards plus the gap; below that they
+        // stack so the labels never get squeezed.
+        if (constraints.maxWidth >= 300) {
+          // IntrinsicHeight lets the two cards share the taller card's height
+          // without asking the scroll view for an unbounded one.
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: code),
+                const SizedBox(width: 12),
+                Expanded(child: register),
+              ],
+            ),
+          );
+        }
+        return Column(
+          children: [code, const SizedBox(height: 12), register],
+        );
+      },
     );
   }
 }
 
-/// Closing tagline, kept visually quiet.
-class _Footer extends StatelessWidget {
-  const _Footer();
+class _OptionCard extends StatelessWidget {
+  const _OptionCard({
+    required this.icon,
+    required this.prompt,
+    required this.action,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String prompt;
+  final String action;
+  final bool enabled;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.auto_awesome_rounded, size: 14, color: theme.colorScheme.onSurfaceVariant),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Text(
-            'Tango - Plus qu’une app, une communauté',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return GlassActionCard(
+      onTap: onTap,
+      enabled: enabled,
+      radius: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 22, color: AppColors.violetBright),
+          const SizedBox(height: 10),
+          Text(
+            prompt,
+            style: TextStyle(color: muted, fontSize: 12.5, height: 1.2),
           ),
-        ),
-      ],
+          const SizedBox(height: 3),
+          Text(
+            action,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              height: 1.25,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

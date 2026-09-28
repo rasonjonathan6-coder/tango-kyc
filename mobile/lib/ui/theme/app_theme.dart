@@ -45,6 +45,15 @@ abstract final class AppColors {
   /// Magenta: the bottom of the gradient and the counter-aura.
   static const Color magenta = Color(0xFFE01BD4);
 
+  /// Neon rose: the warm end of the primary action gradient.
+  static const Color rose = Color(0xFFFF0A8A);
+
+  /// Electric blue: the cool end of the primary action gradient.
+  static const Color electric = Color(0xFF168CFF);
+
+  /// Cyan: the coolest halo in the backdrop.
+  static const Color cyan = Color(0xFF16E0FF);
+
   /// Indigo used for the cool corner of the background.
   static const Color indigo = Color(0xFF3B2BFF);
 
@@ -107,6 +116,24 @@ class AppTheme {
     end: Alignment.bottomRight,
     colors: [Color(0xFF8A1BF9), Color(0xFFB516FA), Color(0xFFE01BD4)],
     stops: [0.0, 0.52, 1.0],
+  );
+
+  /// The primary action gradient: rose to violet to electric blue.
+  ///
+  /// Wider than [brandGradient] and brighter at both ends, so the main call to
+  /// action reads as the single brightest object on a screen.
+  static const LinearGradient actionGradient = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFFFF0A8A), Color(0xFFA000FF), Color(0xFF168CFF)],
+    stops: [0.0, 0.52, 1.0],
+  );
+
+  /// Hairline gradient used to frame the auth fields and cards.
+  static const LinearGradient neonHairline = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFFF0A8A), Color(0xFFA000FF), Color(0xFF16E0FF)],
   );
 
   /// Gradient used by hero surfaces (KYC status, auth headers, onboarding).
