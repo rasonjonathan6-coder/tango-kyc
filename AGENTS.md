@@ -3,6 +3,22 @@
 Repository notes for future sessions. Keep this factual and current; it is not a
 substitute for the docs in `docs/`.
 
+## Scope discipline (read this first)
+
+These rules exist because an agent once shipped an unrequested migration that
+broke the user/admin reply flow in production. Follow them strictly.
+
+- Do exactly what was asked, and nothing more. No refactors, no "while I am
+  here" cleanups, no new migrations and no dependency bumps unless explicitly
+  requested.
+- If a task seems to require a change outside the request, stop and ask first.
+- Never change the model or the agent profile on your own initiative.
+- Any schema change must be a requested, versioned migration. If a migration
+  turns out to be wrong, add a corrective migration instead of rewriting
+  history.
+- Prefer the smallest change that fixes the reported problem, and prove it with
+  the existing test suites before claiming success.
+
 ## Layout
 
 - `mobile/` — Flutter (Android) client. Only ever holds the Supabase URL and the
