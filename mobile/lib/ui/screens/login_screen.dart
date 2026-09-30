@@ -19,6 +19,7 @@ import '../../state/auth_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/aurora.dart';
 import '../widgets/auth_kit.dart';
+import '../widgets/tango_scaffold.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import 'otp_screen.dart';
@@ -78,14 +79,18 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => OtpScreen(email: email, purpose: EmailOtpPurpose.signup),
+        builder: (_) =>
+            OtpScreen(email: email, purpose: EmailOtpPurpose.signup),
       ),
     );
   }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Theme.of(context).colorScheme.errorContainer),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.errorContainer,
+      ),
     );
   }
 
@@ -93,133 +98,150 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AuthHalo(
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.fromLTRB(22, 8, 22, 12),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Reveal(child: Center(child: BrandLockup())),
-                      const SizedBox(height: 12),
-                      const Reveal(delay: Duration(milliseconds: 50), child: _Title()),
-                      const SizedBox(height: 8),
-                      const Reveal(delay: Duration(milliseconds: 80), child: _Subtitle()),
-                      const SizedBox(height: 14),
-                      Reveal(
-                        delay: const Duration(milliseconds: 110),
-                        child: NeonField(
-                          label: 'Email',
-                          controller: _emailController,
-                          hint: 'vous@exemple.com',
-                          icon: Icons.alternate_email_rounded,
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.email],
-                          enabled: !auth.busy,
-                          validator: Validators.validateEmail,
+    return AuthBackground(
+      child: TangoKycScaffold(
+        body: Center(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(22, 8, 22, 12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Reveal(child: Center(child: BrandLockup())),
+                    const SizedBox(height: 12),
+                    const Reveal(
+                      delay: Duration(milliseconds: 50),
+                      child: _Title(),
+                    ),
+                    const SizedBox(height: 8),
+                    const Reveal(
+                      delay: Duration(milliseconds: 80),
+                      child: _Subtitle(),
+                    ),
+                    const SizedBox(height: 14),
+                    Reveal(
+                      delay: const Duration(milliseconds: 110),
+                      child: NeonField(
+                        label: 'Email',
+                        controller: _emailController,
+                        hint: 'vous@exemple.com',
+                        icon: Icons.alternate_email_rounded,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
+                        enabled: !auth.busy,
+                        validator: Validators.validateEmail,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Reveal(
+                      delay: const Duration(milliseconds: 140),
+                      child: NeonField(
+                        label: 'Mot de passe',
+                        controller: _passwordController,
+                        hint: 'Votre mot de passe',
+                        icon: Icons.lock_rounded,
+                        obscureText: _obscure,
+                        enabled: !auth.busy,
+                        textInputAction: TextInputAction.done,
+                        autofillHints: const [AutofillHints.password],
+                        onSubmitted: (_) => _submit(),
+                        validator: (value) => (value ?? '').isEmpty
+                            ? 'Veuillez saisir votre mot de passe.'
+                            : null,
+                        suffix: _EyeToggle(
+                          obscure: _obscure,
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Reveal(
-                        delay: const Duration(milliseconds: 140),
-                        child: NeonField(
-                          label: 'Mot de passe',
-                          controller: _passwordController,
-                          hint: 'Votre mot de passe',
-                          icon: Icons.lock_rounded,
-                          obscureText: _obscure,
-                          enabled: !auth.busy,
-                          textInputAction: TextInputAction.done,
-                          autofillHints: const [AutofillHints.password],
-                          onSubmitted: (_) => _submit(),
-                          validator: (value) => (value ?? '').isEmpty
-                              ? 'Veuillez saisir votre mot de passe.'
-                              : null,
-                          suffix: _EyeToggle(
-                            obscure: _obscure,
-                            onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                    Reveal(
+                      delay: const Duration(milliseconds: 160),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: auth.busy
+                              ? null
+                              : () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const ForgotPasswordScreen(),
+                                  ),
+                                ),
+                          iconAlignment: IconAlignment.end,
+                          icon: const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
                           ),
-                        ),
-                      ),
-                      Reveal(
-                        delay: const Duration(milliseconds: 160),
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: auth.busy
-                                ? null
-                                : () => Navigator.of(context).push(
-                                      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
-                                    ),
-                            iconAlignment: IconAlignment.end,
-                            icon: const Icon(Icons.chevron_right_rounded, size: 18),
-                            label: const Text('Mot de passe oublié ?'),
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(0, 36),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              foregroundColor: AppColors.magenta,
-                              textStyle: const TextStyle(
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          label: const Text('Mot de passe oublié ?'),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 36),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            foregroundColor: AppColors.magenta,
+                            textStyle: const TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Reveal(
-                        delay: const Duration(milliseconds: 190),
-                        child: GradientButton(
-                          onPressed: auth.busy ? null : _submit,
-                          busy: auth.busy,
-                          height: 64,
-                          radius: 34,
-                          gradient: AppTheme.actionGradient,
-                          icon: Icons.login_rounded,
-                          textStyle: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
+                    ),
+                    const SizedBox(height: 12),
+                    Reveal(
+                      delay: const Duration(milliseconds: 190),
+                      child: GradientButton(
+                        onPressed: auth.busy ? null : _submit,
+                        busy: auth.busy,
+                        height: 64,
+                        radius: 34,
+                        gradient: AppTheme.actionGradient,
+                        icon: Icons.login_rounded,
+                        textStyle: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                        child: const Text('Se connecter'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Reveal(
+                      delay: Duration(milliseconds: 220),
+                      child: OrDivider(),
+                    ),
+                    const SizedBox(height: 10),
+                    Reveal(
+                      delay: const Duration(milliseconds: 250),
+                      child: _GoogleCard(
+                        enabled: !auth.busy,
+                        onPressed: _google,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Reveal(
+                      delay: const Duration(milliseconds: 280),
+                      child: _SecondaryOptions(
+                        enabled: !auth.busy,
+                        onCode: _startCodeSignIn,
+                        onRegister: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const RegisterScreen(),
                           ),
-                          child: const Text('Se connecter'),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      const Reveal(delay: Duration(milliseconds: 220), child: OrDivider()),
-                      const SizedBox(height: 10),
-                      Reveal(
-                        delay: const Duration(milliseconds: 250),
-                        child: _GoogleCard(
-                          enabled: !auth.busy,
-                          onPressed: _google,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Reveal(
-                        delay: const Duration(milliseconds: 280),
-                        child: _SecondaryOptions(
-                          enabled: !auth.busy,
-                          onCode: _startCodeSignIn,
-                          onRegister: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Reveal(delay: Duration(milliseconds: 310), child: AuthFooter()),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Reveal(
+                      delay: Duration(milliseconds: 310),
+                      child: AuthFooter(),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -231,30 +253,18 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 /// The gradient two-line title, wrapping naturally on narrow screens.
+///
+/// Shares [AuthHeading] with the other auth pages so the lockup, weight and
+/// accent treatment cannot drift between Login, Register and Forgot Password.
 class _Title extends StatelessWidget {
   const _Title();
 
-  static const TextStyle _base = TextStyle(
-    fontSize: 33,
-    fontWeight: FontWeight.w800,
-    letterSpacing: -0.6,
-    height: 1.08,
-  );
-
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 9,
-      runSpacing: 2,
-      children: [
-        Text('Tango', style: _base.copyWith(color: Colors.white)),
-        ShaderMask(
-          shaderCallback: (bounds) => AppTheme.brandGradient.createShader(bounds),
-          child: Text('KYC', style: _base.copyWith(color: Colors.white)),
-        ),
-        Text('Verification', style: _base.copyWith(color: Colors.white)),
+    return const AuthHeading(
+      lines: [
+        [HeadingSegment('Tango'), HeadingSegment('KYC', gradient: true)],
+        [HeadingSegment('Vérification')],
       ],
     );
   }
@@ -269,9 +279,10 @@ class _Subtitle extends StatelessWidget {
       'Vérifiez votre compte pour profiter\nde toutes les fonctionnalités.',
       textAlign: TextAlign.center,
       style: TextStyle(
-        color: const Color(0xFFC3B2E6).withValues(alpha: 0.82),
-        fontSize: 16,
-        height: 1.45,
+        // Slightly blue-white, per the reference description colour.
+        color: context.tokens.textSecondary.withValues(alpha: 0.92),
+        fontSize: 17,
+        height: 1.4,
         fontWeight: FontWeight.w400,
       ),
     );
@@ -297,7 +308,7 @@ class _EyeToggle extends StatelessWidget {
         icon: Icon(
           obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
           size: 22,
-          color: const Color(0xFFB9A9D8),
+          color: context.tokens.textSecondary,
         ),
       ),
     );
@@ -321,11 +332,11 @@ class _GoogleCard extends StatelessWidget {
         children: [
           const GoogleGlyph(size: 24),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Text(
               'Continuer avec Google',
               style: TextStyle(
-                color: Colors.white,
+                color: context.tokens.textPrimary,
                 fontSize: 15.5,
                 fontWeight: FontWeight.w600,
               ),
@@ -391,9 +402,7 @@ class _SecondaryOptions extends StatelessWidget {
             ),
           );
         }
-        return Column(
-          children: [code, const SizedBox(height: 12), register],
-        );
+        return Column(children: [code, const SizedBox(height: 12), register]);
       },
     );
   }
@@ -435,8 +444,8 @@ class _OptionCard extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             action,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: context.tokens.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w700,
               height: 1.25,

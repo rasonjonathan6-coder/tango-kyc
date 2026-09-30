@@ -33,6 +33,13 @@ abstract class KycService {
   Future<List<TicketMessage>> messages(String ticketId);
   Future<List<StatusHistoryEntry>> statusHistory(String ticketId);
 
+  /// Posts the caller's own reply on one of their tickets.
+  ///
+  /// Goes through the `reply-to-ticket` Edge Function, which re-checks ownership
+  /// and refuses a closed ticket server side. A closed ticket therefore stays
+  /// read-only even if the UI is bypassed.
+  Future<TicketMessage> replyToTicket({required String ticketId, required String body});
+
   /// The caller's own persisted notifications, newest first.
   Future<List<NotificationItem>> notifications();
 
@@ -143,6 +150,23 @@ class SupabaseKycService implements KycService {
         .eq('ticket_id', ticketId)
         .order('created_at', ascending: true);
     return rows.map((row) => StatusHistoryEntry.fromMap(row)).toList();
+  }
+
+  @override
+  Future<TicketMessage> replyToTicket({
+    required String ticketId,
+    required String body,
+  }) async {
+    final payload = await invokeFunction(
+      _client,
+      'reply-to-ticket',
+      {'ticket_id': ticketId, 'body': body},
+    );
+    final message = payload['message'] as Map<String, dynamic>?;
+    if (message == null) {
+      throw const KycServiceException('INTERNAL', 'Something went wrong. Please try again.');
+    }
+    return TicketMessage.fromMap(message);
   }
 
   @override

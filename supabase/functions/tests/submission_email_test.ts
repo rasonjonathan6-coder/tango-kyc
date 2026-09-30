@@ -32,13 +32,24 @@ Deno.test("the admin email carries the required subject and both register shapes
     payment_status: "approved",
     payment_reviewed_at: "2026-09-25T11:00:00.000Z",
   });
-  assertStringIncludes(subject, "Manual KYC Verification request - Profil Creator");
-  assertStringIncludes(subject, "https://tango.me/user/7");
-  assertStringIncludes(subject, "[TNG-KYC-8F42A91C]");
+  assertEquals(subject, "Nouvelle demande de vérification de compte");
+  assertStringIncludes(text, "https://tango.me/user/7");
   assertStringIncludes(text, "Register email: requester@example.com");
   assertStringIncludes(text, "Payment status: approved");
   assertStringIncludes(text, "Payment amount: 20000 MGA");
-  assertStringIncludes(text, "Ticket ID: TNG-KYC-8F42A91C");
+});
+
+Deno.test("the admin email never leaks the ticket code or the uuid", () => {
+  const { subject, text, html } = adminRequestEmailContent({
+    ...ticket,
+    payment_amount: 20000,
+    payment_currency: "MGA",
+  });
+  for (const part of [subject, text, html]) {
+    assert(!part.includes("TNG-KYC-8F42A91C"), "the ticket code must not appear");
+    assert(!part.includes("Ticket ID"), "no 'Ticket ID' label must appear");
+    assert(!part.includes(ticket.id), "the ticket uuid must not appear");
+  }
 });
 
 Deno.test("the admin email reports a phone registration as a number, not an email", () => {
@@ -70,14 +81,33 @@ Deno.test("the admin email escapes markup in the HTML body", () => {
 
 Deno.test("the requester email confirms submission after the payment is validated", () => {
   const { subject, text, html } = userSubmittedEmailContent(ticket);
-  assertStringIncludes(subject, "TNG-KYC-8F42A91C");
-  assertStringIncludes(text, "envoyée avec succès");
+  assertStringIncludes(subject, "Votre demande de vérification de compte a bien été envoyée");
+  assertStringIncludes(text, "envoyée");
   assertStringIncludes(text, "validation de votre paiement");
-  assertStringIncludes(html, "TNG-KYC-8F42A91C");
+  assertStringIncludes(html, "bien été envoyée");
 });
 
-Deno.test("the requester email escapes the ticket code", () => {
-  const { html } = userSubmittedEmailContent({ ...ticket, ticket_code: "<b>x</b>" });
-  assert(!html.includes("<b>x</b>"));
-  assertStringIncludes(html, "&lt;b&gt;x&lt;/b&gt;");
+Deno.test("the requester email never leaks the ticket code or the uuid", () => {
+  const { subject, text, html } = userSubmittedEmailContent(ticket);
+  for (const part of [subject, text, html]) {
+    assert(!part.includes("TNG-KYC-8F42A91C"), "the ticket code must not appear");
+    assert(!part.includes("Ticket ID"), "no 'Ticket ID' label must appear");
+    assert(!part.includes(ticket.id), "the ticket uuid must not appear");
+  }
+});
+
+Deno.test("the requester email keeps the French copy and the ticket code out of the subject", () => {
+  const { subject, text } = userSubmittedEmailContent(ticket);
+  assert(!subject.includes("TNG-KYC"), "the subject must not carry the code");
+  assert(!text.includes("TNG-KYC"), "the body must not carry the code");
+});
+
+Deno.test("a hostile ticket code cannot be injected into the requester email", () => {
+  // The escaping rule still holds for whatever reaches the body: the code is no
+  // longer interpolated at all, so even a markup payload cannot appear.
+  const { subject, text, html } = userSubmittedEmailContent({ ...ticket, ticket_code: "<b>x</b>" });
+  for (const part of [subject, text, html]) {
+    assert(!part.includes("<b>x</b>"));
+    assert(!part.includes("&lt;b&gt;x&lt;/b&gt;"));
+  }
 });

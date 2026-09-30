@@ -9,8 +9,8 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/admin_controller.dart';
 import '../../state/auth_controller.dart';
-import '../widgets/aurora.dart';
 import '../widgets/common.dart';
+import '../widgets/tango_scaffold.dart';
 import 'admin_mvola_screen.dart';
 import 'admin_ticket_screen.dart';
 
@@ -37,8 +37,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final theme = Theme.of(context);
 
     if (!isAdmin) {
-      return const Scaffold(
-        backgroundColor: Colors.transparent,
+      return const TangoKycScaffold(
         body: EmptyState(
           icon: Icons.lock_outline_rounded,
           title: 'Accès administrateur requis',
@@ -47,11 +46,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
+    return TangoKycScaffold(
       appBar: AppBar(title: const Text('Administration')),
-      body: AuroraBackground(
-        child: RefreshIndicator(
+      body: RefreshIndicator(
       onRefresh: () => admin.load(),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
@@ -135,7 +132,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ],
       ),
         ),
-      ),
     );
   }
 }
@@ -241,20 +237,20 @@ class _AdminTicketCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               InfoRow(
-                label: 'User',
-                value: ticket.userDisplayName ?? ticket.userEmail ?? 'Unknown',
+                label: 'Utilisateur',
+                value: ticket.userDisplayName ?? ticket.userEmail ?? 'Inconnu',
               ),
-              InfoRow(label: 'Tango Profile', value: ticket.tangoProfileLink),
+              InfoRow(label: 'Lien du profil Tango', value: ticket.tangoProfileLink),
               InfoRow(label: ticket.registerType.label, value: ticket.registerValue),
-              InfoRow(label: 'Created', value: formatDate(ticket.createdAt)),
+              InfoRow(label: 'Créé le', value: formatDate(ticket.createdAt)),
               if (ticket.paymentRequired)
                 InfoRow(
                   label: 'État',
                   value: ticket.isSubmitted ? 'Demande soumise' : 'Paiement en attente',
                 ),
               InfoRow(
-                label: 'Last Reply',
-                value: ticket.lastReplyAt == null ? 'None' : formatDateTime(ticket.lastReplyAt!),
+                label: 'Dernière réponse',
+                value: ticket.lastReplyAt == null ? 'Aucun' : formatDateTime(ticket.lastReplyAt!),
               ),
             ],
           ),
@@ -292,14 +288,14 @@ class _UnmatchedCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    item.subject?.trim().isNotEmpty == true ? item.subject! : 'Untitled reply',
+                    item.subject?.trim().isNotEmpty == true ? item.subject! : 'Réponse sans objet',
                     style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            InfoRow(label: 'From', value: item.fromEmail ?? 'Unknown sender'),
+            InfoRow(label: 'From', value: item.fromEmail ?? 'Expéditeur inconnu'),
             InfoRow(label: 'Reason', value: item.reason),
             InfoRow(label: 'Received', value: formatDateTime(item.createdAt)),
             if (item.bodyExcerpt?.trim().isNotEmpty == true) ...[
@@ -372,7 +368,7 @@ class _UnmatchedCard extends StatelessWidget {
       SnackBar(
         content: Text(
           ok
-              ? 'Reply attached to ${selected.ticketCode}.'
+              ? 'Réponse rattachée à ${selected.ticketCode}.'
               : ErrorMessages.from(context.read<AdminController>().lastErrorCode ?? ''),
         ),
       ),

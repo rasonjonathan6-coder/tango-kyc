@@ -20,7 +20,10 @@ import 'package:provider/provider.dart';
 import '../../core/validators.dart';
 import '../../services/auth_service.dart';
 import '../../state/auth_controller.dart';
+import '../theme/app_theme.dart';
 import '../widgets/aurora.dart';
+import '../widgets/auth_kit.dart';
+import '../widgets/tango_scaffold.dart';
 import 'reset_password_screen.dart';
 
 /// How many digits Supabase currently mails for this project.
@@ -167,130 +170,199 @@ class _OtpScreenState extends State<OtpScreen> {
     );
   }
 
+  /// Formats the resend cooldown as `MM:SS`, matching the artwork.
+  String _mmss(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
-    final theme = Theme.of(context);
     final busy = auth.busy;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: Text(
-          widget.isRecovery
-              ? 'Vérifiez votre identité'
-              : 'Confirmez votre email',
-        ),
-      ),
-      body: AuroraBackground(
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 8),
-                    const LogoMark(
-                      size: 68,
-                      animate: false,
-                      iconSize: 34,
-                      icon: Icons.lock_person_rounded,
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Entrez votre code',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Nous avons envoyé un code à $kEmailOtpLength chiffres à ${widget.email}. '
-                      'Saisissez-le ci-dessous pour continuer.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    TextField(
-                      controller: _codeController,
-                      focusNode: _focusNode,
-                      enabled: !busy,
-                      autofocus: false,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      textAlign: TextAlign.center,
-                      autofillHints: const [AutofillHints.oneTimeCode],
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(kEmailOtpLength),
-                      ],
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 10,
-                      ),
-                      onChanged: (_) {
-                        if (_error != null) setState(() => _error = null);
-                        setState(() {});
-                      },
-                      onSubmitted: (_) =>
-                          _isComplete && !busy ? _verify() : null,
-                      decoration: InputDecoration(
-                        hintText: '0' * kEmailOtpLength,
-                        hintStyle: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 10,
-                          color: theme.colorScheme.outlineVariant,
-                        ),
-                        errorText: _error,
-                        counterText: '',
-                      ),
-                    ),
-                    if (_failedAttempts > 0) ...[
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline_rounded,
-                            size: 18,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Les codes expirent au bout d’une heure. S’il a expiré, demandez-en un nouveau.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    const SizedBox(height: 28),
-                    GradientButton(
-                      onPressed: busy || !_isComplete ? null : _verify,
-                      busy: busy,
-                      child: const Text('Vérifier le code'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: (busy || _secondsLeft > 0) ? null : _resend,
-                      child: Text(
-                        _secondsLeft > 0
-                            ? 'Renvoyer le code dans ${_secondsLeft}s'
-                            : 'Renvoyer le code',
-                      ),
-                    ),
-                  ],
-                ),
+    return TangoKycScaffold(
+      body: AuthScreenLayout(
+        children: [
+          const Reveal(child: Center(child: BrandLockup())),
+          const SizedBox(height: 14),
+          const Reveal(
+            delay: Duration(milliseconds: 50),
+            child: AuthHeading(
+              lines: [
+                [HeadingSegment('Vérifiez')],
+                [HeadingSegment('votre email', gradient: true)],
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Reveal(
+            delay: const Duration(milliseconds: 80),
+            child: Text(
+              'Nous avons envoyé un code de vérification à\n${widget.email}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: context.tokens.textSecondary.withValues(alpha: 0.92),
+                fontSize: 16,
+                height: 1.4,
               ),
             ),
           ),
-        ),
+          const SizedBox(height: 26),
+          Reveal(
+            delay: const Duration(milliseconds: 120),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final tile = ((constraints.maxWidth - (kEmailOtpLength - 1) * 8) /
+                        kEmailOtpLength)
+                    .clamp(26.0, 42.0);
+                final digits = _codeController.text;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // The tiles render the digits; the real field is transparent
+                    // on top and keeps every behaviour it already had.
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        for (var i = 0; i < kEmailOtpLength; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          GhostTile(
+                            filled: i < digits.length,
+                            char: i < digits.length ? digits[i] : '',
+                            size: tile,
+                          ),
+                        ],
+                      ],
+                    ),
+                    SizedBox(
+                      width: kEmailOtpLength * (tile + 8),
+                      height: tile + 14,
+                      child: TextField(
+                        controller: _codeController,
+                        focusNode: _focusNode,
+                        enabled: !busy,
+                        autofocus: false,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        textAlign: TextAlign.center,
+                        autofillHints: const [AutofillHints.oneTimeCode],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(kEmailOtpLength),
+                        ],
+                        style: const TextStyle(
+                          color: Colors.transparent,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        cursorColor: AppColors.cyan,
+                        cursorWidth: 2,
+                        onChanged: (_) {
+                          if (_error != null) setState(() => _error = null);
+                          setState(() {});
+                        },
+                        onSubmitted: (_) =>
+                            _isComplete && !busy ? _verify() : null,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          errorBorder: InputBorder.none,
+                          focusedErrorBorder: InputBorder.none,
+                          counterText: '',
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Reveal(
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFFFF8FA8),
+                  fontSize: 13,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Reveal(
+            delay: const Duration(milliseconds: 150),
+            child: Text(
+              'Le code comporte $kEmailOtpLength chiffres.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: context.tokens.textSecondary.withValues(alpha: 0.7),
+                fontSize: 13.5,
+              ),
+            ),
+          ),
+          if (_failedAttempts > 0) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: context.tokens.textSecondary.withValues(alpha: 0.8),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Les codes expirent au bout d’une heure. S’il a expiré, demandez-en un nouveau.',
+                    style: TextStyle(
+                      color: context.tokens.textSecondary.withValues(alpha: 0.8),
+                      fontSize: 12.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 26),
+          Reveal(
+            delay: const Duration(milliseconds: 190),
+            child: GradientButton(
+              onPressed: busy || !_isComplete ? null : _verify,
+              busy: busy,
+              height: 62,
+              radius: 32,
+              gradient: AppTheme.actionGradient,
+              icon: Icons.verified_rounded,
+              child: const Text('Vérifier le code'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Reveal(
+            delay: const Duration(milliseconds: 230),
+            child: Center(
+              child: AuthTextLink(
+                label: _secondsLeft > 0
+                    ? 'Renvoyer le code (${_mmss(_secondsLeft)})'
+                    : 'Renvoyer le code',
+                color: AppColors.magenta,
+                onPressed: (busy || _secondsLeft > 0) ? null : _resend,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Reveal(
+            delay: Duration(milliseconds: 260),
+            child: AuthFooter(),
+          ),
+        ],
       ),
     );
   }

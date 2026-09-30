@@ -89,7 +89,7 @@ def main() -> int:
         "created_at": "2026-09-25T14:00:00.000Z",
         "data": {
             "email_id": f"e2e-email-{int(time.time() * 1000)}",
-            "from": "rasonjonathan6@gmail.com",
+            "from": "tangoturq@gmail.com",
             "to": ["reply@inbound.resend.app"],
             "subject": "Re: Manual KYC Verification request",
             "message_id": "<e2e@mail.gmail.com>",

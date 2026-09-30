@@ -419,6 +419,12 @@ verify_jwt = true
 [functions.email-webhook]
 verify_jwt = false
 
+[functions.reply-to-ticket]
+# Same reasoning as create-kyc-request: the function calls `requireUser`, which
+# verifies the access token against Supabase Auth, and `user_post_message`
+# derives the actor from auth.uid(). An anonymous caller is rejected with 401.
+verify_jwt = false
+
 [functions.mvola-payments]
 # Same reasoning as create-kyc-request: the function calls `requireUser`, which
 # verifies the access token against Supabase Auth, and every SQL function it

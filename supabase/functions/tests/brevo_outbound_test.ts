@@ -26,7 +26,7 @@ import { AppError } from "../_shared/http.ts";
 const BASE_ARGS = {
   from: "Tango KYC Verification <kyc@example.com>",
   to: "tangoturq@gmail.com",
-  subject: "Manual KYC Verification request - Profil Creator (https://tango.me/x)",
+  subject: "Nouvelle demande de vérification de compte",
   text: "hello",
 };
 

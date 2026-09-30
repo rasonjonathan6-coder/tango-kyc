@@ -60,9 +60,21 @@ void main() {
   }
 
   group('visual system', () {
-    testWidgets('the canvas is dark and the halos tint it', (tester) async {
+    testWidgets('the canvas is dark and the master backdrop supplies it', (tester) async {
       await pumpAt(tester, const Size(360, 800));
-      expect(find.byType(AuthHalo), findsOneWidget);
+      // The screen routes through the shared scaffold, so a nested
+      // AuroraBackground is present but passes through: exactly ONE instance
+      // actually paints. That is the guarantee all 18 screens share one canvas.
+      // Count the master painters specifically: the screen also contains a
+      // Google glyph CustomPaint, so counting every CustomPaint would be
+      // unrelated to the canvas.
+      final painting = tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .where(
+            (w) => w.painter is MasterBackdropPainter,
+          )
+          .length;
+      expect(painting, 1);
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
       expect(scaffold.backgroundColor, Colors.transparent);
       expect(AppColors.canvasDark.computeLuminance(), lessThan(0.02));
@@ -74,7 +86,7 @@ void main() {
       // "Tango" appears twice: the wordmark and the title.
       expect(find.text('Tango'), findsNWidgets(2));
       expect(find.text('KYC'), findsOneWidget);
-      expect(find.text('Verification'), findsOneWidget);
+      expect(find.text('Vérification'), findsOneWidget);
       expect(find.byType(NeonField), findsNWidgets(2));
       expect(find.byType(OrDivider), findsOneWidget);
       expect(find.byType(GoogleGlyph), findsOneWidget);
@@ -185,13 +197,14 @@ void main() {
     testWidgets('forgot password opens the reset screen', (tester) async {
       await pumpAt(tester, const Size(360, 800));
       await tapAfterScroll(tester, 'Mot de passe oublié ?');
-      expect(find.text('Send reset link'), findsOneWidget);
+      expect(find.text('Envoyer le lien'), findsOneWidget);
     });
 
     testWidgets('create account opens the registration screen', (tester) async {
       await pumpAt(tester, const Size(360, 800));
       await tapAfterScroll(tester, 'Créer un compte');
-      expect(find.text('Create account'), findsOneWidget);
+      // The registration screen now leads with its own gradient heading.
+      expect(find.text('Créer votre'), findsOneWidget);
     });
 
     testWidgets('code sign-in refuses without a valid address', (tester) async {

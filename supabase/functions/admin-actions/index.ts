@@ -6,9 +6,10 @@
  * function, so a compromised client cannot bypass it.
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
-import { requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
+import { env, requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
 import {
   emailSendingConfigured,
+  replyToAddress,
   sendAdminRequestNotification,
   sendEmail,
   sendUserRequestSubmittedEmail,
@@ -16,6 +17,13 @@ import {
   userReplyRecipient,
 } from "../_shared/email-provider.ts";
 import type { TicketForAdminNotification } from "../_shared/email-provider.ts";
+import { sendPushToUser } from "../_shared/push.ts";
+
+/// Title/body of the Android push for a reply. Identical wording to the inbound
+/// email path and the client's foreground fallback, so the user sees one message
+/// regardless of how the reply arrived. Carries no reply body or address.
+const PUSH_TITLE = "Nouvelle réponse à votre demande";
+const PUSH_BODY = "Un administrateur a répondu à votre ticket.";
 
 const STATUSES = ["pending", "in_review", "replied", "closed"] as const;
 type Status = (typeof STATUSES)[number];
@@ -114,7 +122,8 @@ Deno.serve(async (req) => {
         if (error) throw translateDbError(error);
 
         const notified = await notifyOwner(payload.ticket_id);
-        return jsonResponse({ message: data, user_notified: notified });
+        const pushed = await notifyPushForTicket(payload.ticket_id);
+        return jsonResponse({ message: data, user_notified: notified, push_sent: pushed });
       }
 
       case "messages": {
@@ -197,6 +206,49 @@ Deno.serve(async (req) => {
     return errorResponse(error);
   }
 });
+
+/**
+ * Sends the Android push that tells the ticket owner an admin replied.
+ *
+ * The recipient is the ticket owner, read from `kyc_requests.user_id`, exactly
+ * as the inbound-email path does, so both routes to a reply notify the same
+ * person through the same mechanism. Push is best effort: the reply is already
+ * stored and the persistent notification already exists, so a Firebase outage
+ * must not fail the admin's action. Returns how many devices it reached.
+ */
+async function notifyPushForTicket(ticketId: string): Promise<number> {
+  const admin = serviceClient();
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("user_id")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket?.user_id) {
+    console.error("Could not load the owner of ticket %s for push: %s", ticketId, error?.message);
+    return 0;
+  }
+
+  try {
+    const result = await sendPushToUser(admin, env, ticket.user_id as string, {
+      title: PUSH_TITLE,
+      body: PUSH_BODY,
+      ticketId,
+    });
+    if (result.sent === 0) {
+      console.warn("No device received the push for ticket %s.", ticketId);
+    }
+    return result.sent;
+  } catch (error) {
+    console.error(
+      "Push for ticket %s failed: %s",
+      ticketId,
+      error instanceof Error ? error.message : error,
+    );
+    return 0;
+  }
+}
 
 /**
  * Sends the approved request to the administration mailbox.
@@ -312,7 +364,7 @@ async function notifyOwner(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("ticket_code, register_type, register_value")
+    .select("ticket_code, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -337,18 +389,37 @@ async function notifyOwner(ticketId: string): Promise<boolean> {
   }
 
   try {
-    await sendEmail({
+    const result = await sendEmail({
       to: recipient,
-      subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
+      subject: "Réponse à votre demande de vérification de compte",
       text: [
-        "Your Tango KYC verification request has received a new response.",
+        "Bonjour,",
         "",
-        `Ticket ID: ${ticket.ticket_code}`,
+        "Votre demande de vérification de compte a reçu une nouvelle réponse.",
         "",
-        "Please open the Tango KYC Verification application to view the response.",
+        "Vous pouvez répondre directement à cet email, ou ouvrir l'application Tango KYC Verification pour consulter la réponse.",
+        "",
+        "Merci d'utiliser Tango KYC Verification.",
       ].join("\n"),
+      replyTo: replyToAddress(ticket.reply_token as string),
       idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${recipient}`,
     });
+
+    // Record the outbound provider id so a reply to this very mail is matched
+    // back to the same ticket by thread id even if the address is rewritten.
+    if (!result.suppressed && result.id) {
+      const { error: recordError } = await admin.rpc("record_outbound_email", {
+        p_ticket_id: ticketId,
+        p_provider_message_id: result.id,
+      });
+      if (recordError) {
+        console.error(
+          "Could not record outbound email id for %s: %s",
+          ticket.ticket_code,
+          recordError.message,
+        );
+      }
+    }
   } catch (error) {
     // The reply is already stored and visible in the dashboard, so a failed
     // notification must not fail the admin's action. It is reported instead.

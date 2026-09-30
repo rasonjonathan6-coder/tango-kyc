@@ -10,13 +10,18 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// The signature backdrop from the product artwork: a near-black navy canvas lit
-/// by three slowly drifting violet, magenta and indigo auras.
+/// The master backdrop: the single source of truth for the app's canvas.
 ///
-/// The animation is a single long-period [AnimationController] driving a
-/// [CustomPainter]; nothing is rebuilt per frame beyond the paint itself, so it
-/// stays smooth on low-end devices. The colours are very low alpha so content
-/// keeps full contrast.
+/// The composition is transcribed from the reference artwork's welcome screen
+/// (the "Bienvenue sur Tango KYC" panel): a near-black navy canvas carrying six
+/// luminous pools, each anchored to a *fraction of the viewport* rather than to
+/// absolute pixels. Anchoring to the viewport is what makes the very same asset
+/// read identically on every route and on every screen size, and it is why the
+/// app paints exactly one instance at the root (see `MaterialApp.builder`).
+///
+/// Pools are fixed: no randomness, no drift. A single one-shot entrance fade
+/// replaces the old perpetual animation, so there is no ticker to schedule, no
+/// frame-by-frame repaint, and widget tests settle immediately.
 class AuroraBackground extends StatefulWidget {
   const AuroraBackground({
     super.key,
@@ -27,11 +32,12 @@ class AuroraBackground extends StatefulWidget {
 
   final Widget child;
 
-  /// Whether the auras drift. Off by default so a screen never leaves a ticker
-  /// pending under a widget test; the app's root backdrop opts in.
+  /// Retained for call-site compatibility. The backdrop no longer loops; when
+  /// true it plays a single short entrance fade, which is the only motion the
+  /// master background is allowed.
   final bool animate;
 
-  /// Scales the aura opacity; `0` renders a flat canvas.
+  /// Scales the pool opacity; `0` renders a flat canvas.
   final double intensity;
 
   @override
@@ -42,13 +48,14 @@ class _AuroraBackgroundState extends State<AuroraBackground>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 22),
+    duration: const Duration(milliseconds: 900),
   );
 
   @override
   void initState() {
     super.initState();
-    if (widget.animate) _controller.repeat();
+    // One-shot: forward() completes, so no ticker is left pending.
+    if (widget.animate) _controller.forward();
   }
 
   @override
@@ -59,16 +66,16 @@ class _AuroraBackgroundState extends State<AuroraBackground>
 
   @override
   Widget build(BuildContext context) {
-    // The app installs one aurora at the root (see `MaterialApp.builder`); a
-    // screen-level instance then just passes through, so nesting stays free and
-    // no aura is painted twice.
+    // The app installs the master backdrop at the root; a screen-level instance
+    // then just passes through, so nesting stays free and the canvas is painted
+    // exactly once per frame.
     if (context.dependOnInheritedWidgetOfExactType<_AuroraScope>() != null) {
       return widget.child;
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (!isDark) {
-      // The light scheme stays calm: a plain tinted canvas, no auras.
+      // The light scheme stays calm: a plain tinted canvas, no pools.
       return _AuroraScope(
         child: ColoredBox(
           color: Theme.of(context).scaffoldBackgroundColor,
@@ -81,17 +88,34 @@ class _AuroraBackgroundState extends State<AuroraBackground>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          ColoredBox(color: Theme.of(context).scaffoldBackgroundColor),
-          RepaintBoundary(
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) => CustomPaint(
-                painter: _AuroraPainter(
-                  t: widget.animate ? _controller.value : 0,
-                  intensity: widget.intensity,
-                ),
+          // The measured canvas ramp: #01011A at the top easing to #000010.
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [AppColors.canvasDark, AppColors.canvasDeep],
               ),
             ),
+          ),
+          RepaintBoundary(
+            child: widget.animate
+                ? FadeTransition(
+                    opacity: CurvedAnimation(
+                      parent: _controller,
+                      curve: Curves.easeOut,
+                    ),
+                    child: CustomPaint(
+                      painter: MasterBackdropPainter(
+                        intensity: widget.intensity,
+                      ),
+                    ),
+                  )
+                : CustomPaint(
+                    painter: MasterBackdropPainter(
+                      intensity: widget.intensity,
+                    ),
+                  ),
           ),
           widget.child,
         ],
@@ -108,59 +132,131 @@ class _AuroraScope extends InheritedWidget {
   bool updateShouldNotify(_AuroraScope oldWidget) => false;
 }
 
-class _AuroraPainter extends CustomPainter {
-  _AuroraPainter({required this.t, required this.intensity});
+/// One luminous pool of the master backdrop.
+class BackdropPool {
+  const BackdropPool(this.x, this.y, this.radius, this.color, this.alpha);
 
-  final double t;
+  /// Centre, as a fraction of the viewport.
+  final double x;
+  final double y;
+
+  /// Radius, as a fraction of the viewport width.
+  final double radius;
+  final Color color;
+  final double alpha;
+}
+
+/// Paints the master backdrop, transcribed from the reference artwork.
+///
+/// The pools below are the ones measured off the reference screens. Their
+/// fractions and colours are the asset: change them here and every route moves
+/// together.
+class MasterBackdropPainter extends CustomPainter {
+  const MasterBackdropPainter({required this.intensity});
+
   final double intensity;
+
+  /// Positions are fractions of the viewport; radii are fractions of its width.
+  /// Colours are the measured pool colours; the alphas tune them down so text
+  /// keeps full contrast on top.
+  ///
+  /// Measured against the reference, the canvas reads *cool*: over the dark
+  /// background the blue channel dominates and red is only a small fraction of
+  /// it (R/B ≈ 0.09, G/B ≈ 0.13). The magenta pools are therefore small, tight
+  /// accents on top of a broad blue wash — not the diffuse magenta field a
+  /// larger radius would produce.
+  static const List<BackdropPool> pools = [
+    // Broad, low cool wash: this is what sets the canvas to a blue-leaning
+    // near-black rather than leaving the magenta pools to tint the whole page.
+    BackdropPool(0.62, 0.34, 1.05, AppColors.poolCanvasBlue, 0.20),
+    // Top-left magenta bloom, kept in the top band so it cannot tint content.
+    BackdropPool(0.07, 0.11, 0.11, AppColors.poolMagentaTop, 0.26),
+    // Top-right teal: the green channel that keeps the canvas cool.
+    BackdropPool(0.97, 0.06, 0.26, AppColors.poolTeal, 0.24),
+    // Mid-right deep blue.
+    BackdropPool(1.00, 0.45, 0.26, AppColors.poolBlue, 0.30),
+    // Lower-left magenta, held in the bottom band.
+    BackdropPool(0.07, 0.93, 0.12, AppColors.poolMagentaLow, 0.28),
+    // Lower-centre violet.
+    BackdropPool(0.50, 0.94, 0.20, AppColors.poolVioletLow, 0.26),
+    // Lower-right indigo.
+    BackdropPool(0.96, 0.95, 0.18, AppColors.poolIndigo, 0.34),
+  ];
 
   @override
   void paint(Canvas canvas, Size size) {
     if (intensity <= 0) return;
-    final angle = t * 2 * math.pi;
+    final w = size.width;
 
-    void aurora(Offset center, double radius, Color color, double alpha) {
-      final paint = Paint()
-        ..shader = RadialGradient(
-          colors: [color.withValues(alpha: alpha * intensity), color.withValues(alpha: 0)],
-        ).createShader(Rect.fromCircle(center: center, radius: radius));
-      canvas.drawCircle(center, radius, paint);
+    for (final pool in pools) {
+      final center = Offset(w * pool.x, size.height * pool.y);
+      final radius = w * pool.radius;
+      final alpha = (pool.alpha * intensity).clamp(0.0, 1.0);
+
+      // Two additive passes per pool: a wide soft halo, then a tight bright
+      // core. Additive light means overlaps brighten and the canvas stays black
+      // away from the pools, which is what keeps the reference's glow
+      // concentrated instead of washing the whole screen violet.
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..blendMode = BlendMode.plus
+          ..shader = RadialGradient(
+            colors: [
+              pool.color.withValues(alpha: alpha * 0.70),
+              pool.color.withValues(alpha: 0),
+            ],
+          ).createShader(Rect.fromCircle(center: center, radius: radius)),
+      );
+      // The broad canvas wash relies on the halo alone: a bright core on a
+      // pool that wide would read as a hotspot in the middle of the page.
+      if (pool.radius > 0.5) continue;
+      final core = radius * 0.50;
+      final coreAlpha = (alpha * 1.25).clamp(0.0, 1.0);
+      canvas.drawCircle(
+        center,
+        core,
+        Paint()
+          ..blendMode = BlendMode.plus
+          ..shader = RadialGradient(
+            colors: [
+              pool.color.withValues(alpha: coreAlpha),
+              pool.color.withValues(alpha: coreAlpha * 0.5),
+              pool.color.withValues(alpha: 0),
+            ],
+            stops: const [0.0, 0.45, 1.0],
+          ).createShader(Rect.fromCircle(center: center, radius: core)),
+      );
     }
 
-    // Three auras, each on its own elliptical drift, matching the artwork's
-    // violet top-right, magenta bottom-left and indigo bottom-right corners.
-    aurora(
-      Offset(
-        size.width * (0.82 + 0.10 * math.cos(angle)),
-        size.height * (0.10 + 0.06 * math.sin(angle)),
-      ),
-      size.width * 1.05,
-      AppColors.violetBright,
-      0.30,
+    // Two barely-there light streaks, purely for the glass texture of the
+    // reference. Drawn last so they sit over the pools.
+    final streak = Paint()
+      ..strokeWidth = 1.1
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: 0.04 * intensity),
+          Colors.white.withValues(alpha: 0),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawLine(
+      Offset(-w * 0.1, size.height * 0.30),
+      Offset(w * 1.1, size.height * 0.05),
+      streak,
     );
-    aurora(
-      Offset(
-        size.width * (0.08 + 0.08 * math.sin(angle + 1.2)),
-        size.height * (0.94 + 0.05 * math.cos(angle + 0.6)),
-      ),
-      size.width * 0.95,
-      AppColors.magenta,
-      0.24,
-    );
-    aurora(
-      Offset(
-        size.width * (0.92 + 0.07 * math.cos(angle + 2.4)),
-        size.height * (0.86 + 0.06 * math.sin(angle + 1.8)),
-      ),
-      size.width * 0.80,
-      AppColors.indigo,
-      0.20,
+    canvas.drawLine(
+      Offset(-w * 0.1, size.height * 0.72),
+      Offset(w * 1.1, size.height * 0.95),
+      streak,
     );
   }
 
   @override
-  bool shouldRepaint(_AuroraPainter old) =>
-      old.t != t || old.intensity != intensity;
+  bool shouldRepaint(MasterBackdropPainter old) => old.intensity != intensity;
 }
 
 /// The brand mark used on auth, splash and onboarding surfaces.
@@ -196,11 +292,7 @@ class LogoMark extends StatelessWidget {
           blur: size * 0.45,
         ),
       ),
-      child: Icon(
-        icon,
-        size: iconSize ?? size * 0.5,
-        color: Colors.white,
-      ),
+      child: Icon(icon, size: iconSize ?? size * 0.5, color: Colors.white),
     );
 
     if (!animate) return mark;
@@ -275,8 +367,11 @@ class _GradientButtonState extends State<GradientButton> {
             gradient: widget.gradient ?? AppTheme.brandGradient,
             borderRadius: radius,
             boxShadow: enabled
-                ? AppTheme.glow(AppColors.violet,
-                    opacity: isDark ? 0.45 : 0.30, blur: 22)
+                ? AppTheme.glow(
+                    AppColors.violet,
+                    opacity: isDark ? 0.45 : 0.30,
+                    blur: 22,
+                  )
                 : null,
           ),
           child: Material(
@@ -285,9 +380,13 @@ class _GradientButtonState extends State<GradientButton> {
             child: InkWell(
               borderRadius: radius,
               onTap: enabled ? widget.onPressed : null,
-              onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+              onTapDown: enabled
+                  ? (_) => setState(() => _pressed = true)
+                  : null,
               onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-              onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+              onTapCancel: enabled
+                  ? () => setState(() => _pressed = false)
+                  : null,
               child: SizedBox(
                 height: widget.height,
                 child: Center(
@@ -308,15 +407,19 @@ class _GradientButtonState extends State<GradientButton> {
                               Icon(widget.icon, size: 20, color: Colors.white),
                               const SizedBox(width: 10),
                             ],
-                            DefaultTextStyle(
-                              style: widget.textStyle ??
-                                  const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.2,
-                                  ),
-                              child: widget.child,
+                            Flexible(
+                              child: DefaultTextStyle(
+                                style:
+                                    widget.textStyle ??
+                                    const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.2,
+                                    ),
+                                textAlign: TextAlign.center,
+                                child: widget.child,
+                              ),
                             ),
                           ],
                         ),
@@ -356,7 +459,10 @@ class Reveal extends StatelessWidget {
         final clamped = value == 0 ? 0.0 : value;
         return Opacity(
           opacity: clamped,
-          child: Transform.translate(offset: Offset(0, 16 * (1 - clamped)), child: child),
+          child: Transform.translate(
+            offset: Offset(0, 16 * (1 - clamped)),
+            child: child,
+          ),
         );
       },
     );
@@ -388,9 +494,7 @@ class GlassCard extends StatelessWidget {
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.035)
-            : Colors.white,
+        color: isDark ? AppColors.glassFill.withValues(alpha: 0.12) : Colors.white,
         borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(
           color: isDark

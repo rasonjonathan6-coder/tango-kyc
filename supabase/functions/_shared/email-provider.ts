@@ -123,33 +123,71 @@ export function fromAddress(): string {
   return env("RESEND_FROM_EMAIL") || DEFAULT_RESEND_FROM;
 }
 
-export function replyToAddress(ticketCode: string, replyToken: string): string {
+/**
+ * The tokenised inbound address a reply must be sent to.
+ *
+ * Only the opaque `reply_token` identifies the ticket: the ticket code is never
+ * part of the address, and the token is never shown to the recipient. When no
+ * inbound domain is configured the reply path cannot exist, so the address is
+ * not invented — an explicit error tells the operator what is missing.
+ */
+export function replyToAddress(replyToken: string): string {
   const domain = env("EMAIL_INBOUND_DOMAIN");
   const mailbox = env("EMAIL_INBOUND_MAILBOX") || "reply";
   if (!domain) {
-    // No inbound domain configured: let the admin reply straight to the
-    // ticket code address only when a domain exists, otherwise fall back to
-    // the admin mailbox so nothing is silently lost.
-    return adminEmail();
+    throw new AppError(
+      "EMAIL_REPLY_NOT_CONFIGURED",
+      "Inbound email is not configured; set EMAIL_INBOUND_DOMAIN",
+      503,
+    );
   }
   return `${mailbox}+${replyToken}@${domain}`;
 }
 
+/**
+ * The administration identity: the human who replies to requests.
+ *
+ * `ADMIN_EMAIL` is the single source of truth and lives in an Edge Function
+ * secret, not in `app_settings` (see docs/SUPABASE_SETUP.md). There is no
+ * fallback address on purpose: sending a request to a hard-coded mailbox would
+ * silently deliver KYC data to whoever owns that literal, so an unconfigured
+ * deployment fails loudly instead.
+ */
 export function adminEmail(): string {
-  return env("ADMIN_EMAIL") || "rason<secret-hidden>6@gmail.com";
+  const configured = env("ADMIN_EMAIL");
+  if (!configured) {
+    throw new AppError(
+      "ADMIN_EMAIL_NOT_CONFIGURED",
+      "ADMIN_EMAIL is not configured",
+      503,
+    );
+  }
+  return configured;
 }
 
 /**
- * The mailbox that receives the KYC request itself, once a payment is approved.
+ * The mailbox that receives KYC mail and answers it: the "société / support
+ * KYC" role.
  *
- * This is a distinct role from `ADMIN_EMAIL`: that address is the administration
- * identity (the human who replies), while this one is the intake inbox for KYC
- * requests. They are frequently the same address, so the value falls back to
- * `ADMIN_EMAIL` when unset, and either can be replaced in production through
- * configuration alone — no code change.
+ * This is deliberately a separate role from `ADMIN_EMAIL`. `ADMIN_EMAIL` is the
+ * administration identity (the human who can act in the dashboard); this one is
+ * the support inbox the user's messages are sent to and that replies from.
+ *
+ * There is no fallback to `ADMIN_EMAIL`: silently using the administration
+ * address here would deliver KYC data to the wrong mailbox, so an unconfigured
+ * deployment fails loudly instead. `KYC_RECIPIENT_EMAIL` is accepted as an
+ * alias so either name can be used in configuration.
  */
-export function adminKycRecipient(): string {
-  return env("ADMIN_KYC_RECIPIENT") || adminEmail();
+export function supportRecipient(): string {
+  const configured = env("KYC_SUPPORT_EMAIL") || env("KYC_RECIPIENT_EMAIL");
+  if (!configured) {
+    throw new AppError(
+      "KYC_SUPPORT_EMAIL_NOT_CONFIGURED",
+      "KYC_SUPPORT_EMAIL is not configured",
+      503,
+    );
+  }
+  return configured;
 }
 
 /** Escape a value for safe interpolation into a text email body. */
@@ -409,8 +447,10 @@ export function adminRequestEmailContent(
     ? `Register email: ${plain(ticket.register_value)}`
     : `Register number: ${plain(ticket.register_value)}`;
 
-  const subject =
-    `Manual KYC Verification request - Profil Creator (${plain(ticket.tango_profile_link)}) [${ticket.ticket_code}]`;
+  // The ticket code is deliberately absent from the subject and body: it is a
+  // routing handle, not something the recipient needs to read. The reply is
+  // matched server side through the tokenised Reply-To and the thread ids.
+  const subject = "Nouvelle demande de vérification de compte";
 
   const amountLine = ticket.payment_amount != null
     ? `${ticket.payment_amount} ${plain(ticket.payment_currency ?? "")}`.trim()
@@ -427,7 +467,6 @@ export function adminRequestEmailContent(
     `Tango profile ID: ${plain(ticket.tango_profile_link)}`,
     registerLine,
     "",
-    `Ticket ID: ${ticket.ticket_code}`,
     `Payment status: ${plain(ticket.payment_status ?? "approved")}`,
     ...(amountLine ? [`Payment amount: ${amountLine}`] : []),
     `Received: ${managedAt}`,
@@ -446,27 +485,29 @@ export function adminRequestEmailContent(
 <p>Tango profile ID: ${escapeHtml(ticket.tango_profile_link)}<br>
 ${ticket.register_type === "email" ? "Register email" : "Register number"}: ${escapeHtml(ticket.register_value)}</p>
 <p><strong>Request details</strong></p>
-<p>Ticket ID: ${escapeHtml(ticket.ticket_code)}<br>
-Payment status: ${escapeHtml(ticket.payment_status ?? "approved")}${amountLine ? `<br>Payment amount: ${escapeHtml(amountLine)}` : ""}<br>
+<p>Payment status: ${escapeHtml(ticket.payment_status ?? "approved")}${amountLine ? `<br>Payment amount: ${escapeHtml(amountLine)}` : ""}<br>
 Received: ${escapeHtml(managedAt)}</p>
 <p>Send me the link for my verification.</p>
 <p>Please restart a manual review of my verification status.</p>
 <p>Thank you.</p>
-<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
-<p style="color:#6b7280"><strong>Ticket ID:</strong> ${escapeHtml(ticket.ticket_code)}</p>
 </div>`;
 
   return { subject, text, html };
 }
 
-/** Builds the "officially submitted" confirmation sent to the requester. */
+/**
+ * Builds the "officially submitted" confirmation sent to the requester.
+ *
+ * The ticket code is never shown: it is an internal routing handle. The reply
+ * is matched server side from the tokenised Reply-To and the thread ids.
+ */
 export function userSubmittedEmailContent(
   ticket: TicketForAdminNotification,
 ): { subject: string; text: string; html: string } {
   const text = [
     "Bonjour,",
     "",
-    `Votre demande KYC ${ticket.ticket_code} a été envoyée avec succès après validation de votre paiement.`,
+    "Votre demande de vérification de compte a bien été envoyée après validation de votre paiement.",
     "",
     "Notre équipe va maintenant la traiter. Vous serez informé à chaque étape.",
     "",
@@ -475,12 +516,119 @@ export function userSubmittedEmailContent(
 
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
 <p>Bonjour,</p>
-<p>Votre demande KYC <strong>${escapeHtml(ticket.ticket_code)}</strong> a été envoyée avec succès après validation de votre paiement.</p>
+<p>Votre demande de vérification de compte a bien été envoyée après validation de votre paiement.</p>
 <p>Notre équipe va maintenant la traiter. Vous serez informé à chaque étape.</p>
 <p>Merci d'utiliser Tango KYC Verification.</p>
 </div>`;
 
-  return { subject: `Tango KYC Verification - demande ${ticket.ticket_code} envoyée`, text, html };
+  return { subject: "Votre demande de vérification de compte a bien été envoyée", text, html };
+}
+
+/**
+ * Builds the email sent to the support inbox when the user writes in the app.
+ *
+ * This is the counterpart of the user's reply inside the conversation: it tells
+ * the société that the ticket owner answered, without exposing the ticket code
+ * or uuid. Support replies straight to the tokenised `Reply-To`, so the answer
+ * lands on the same ticket.
+ */
+export function userMessageToSupportEmailContent(
+  ticket: TicketForAdminNotification,
+  message: string,
+): { subject: string; text: string; html: string } {
+  const registerLine = ticket.register_type === "email"
+    ? `Register email: ${plain(ticket.register_value)}`
+    : `Register number: ${plain(ticket.register_value)}`;
+
+  const subject = "Nouveau message d'un utilisateur - vérification de compte";
+
+  const text = [
+    "Bonjour,",
+    "",
+    "Le demandeur a écrit un nouveau message dans la conversation de sa demande de vérification de compte.",
+    "",
+    "Message:",
+    plain(message),
+    "",
+    "Détails de la demande:",
+    `Tango profile ID: ${plain(ticket.tango_profile_link)}`,
+    registerLine,
+    "",
+    "Vous pouvez répondre directement à cet email: votre réponse sera ajoutée à la conversation et le demandeur en sera informé.",
+    "",
+    "Merci.",
+  ].join("\n");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">
+<p>Bonjour,</p>
+<p>Le demandeur a écrit un nouveau message dans la conversation de sa demande de vérification de compte.</p>
+<p><strong>Message:</strong></p>
+<p style="white-space:pre-wrap">${escapeHtml(message)}</p>
+<p><strong>Détails de la demande:</strong></p>
+<p>Tango profile ID: ${escapeHtml(ticket.tango_profile_link)}<br>
+${ticket.register_type === "email" ? "Register email" : "Register number"}: ${escapeHtml(ticket.register_value)}</p>
+<p>Vous pouvez répondre directement à cet email: votre réponse sera ajoutée à la conversation et le demandeur en sera informé.</p>
+<p>Merci.</p>
+</div>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * Sends the user's in-app message to the support inbox, on the same ticket.
+ *
+ * The `Reply-To` is the tokenised inbound address, so a reply from the société
+ * is resolved back to this ticket by token, never by the ticket code. The
+ * outbound provider id is recorded so a reply is matched by thread id too. The
+ * recipient is `KYC_SUPPORT_EMAIL`, never the admin address.
+ *
+ * `messageId` is the stored `public.messages` row id and is used as the
+ * idempotency key: a retried call for the same stored message is suppressed,
+ * while a genuinely new message (a different row) is always sent.
+ */
+export async function sendUserMessageToSupport(
+  ticket: TicketForAdminNotification,
+  message: string,
+  messageId: string,
+): Promise<boolean> {
+  if (!emailSendingConfigured()) {
+    console.warn(
+      "Email is not configured: user message on %s was not sent to support.",
+      ticket.ticket_code,
+    );
+    return false;
+  }
+
+  const recipient = supportRecipient();
+  const { subject, text, html } = userMessageToSupportEmailContent(ticket, message);
+
+  const result = await sendEmail({
+    to: recipient,
+    subject,
+    text,
+    html,
+    replyTo: replyToAddress(ticket.reply_token),
+    idempotencyKey: `kyc-user-message-${messageId}`,
+  });
+
+  if (result.suppressed || !result.id) {
+    return true;
+  }
+
+  const admin = serviceClient();
+  const { error } = await admin.rpc("record_outbound_email", {
+    p_ticket_id: ticket.id,
+    p_provider_message_id: result.id,
+  });
+  if (error) {
+    console.error(
+      "Could not record outbound email id for %s: %s",
+      ticket.ticket_code,
+      error.message,
+    );
+  }
+
+  return true;
 }
 
 /**
@@ -496,7 +644,7 @@ export async function sendAdminRequestNotification(
 ): Promise<boolean> {
   if (!emailSendingConfigured()) {
     console.warn(
-      "Resend is not configured: ticket %s was not sent to the admin.",
+      "Email is not configured: ticket %s was not sent to the support inbox.",
       ticket.ticket_code,
     );
     return false;
@@ -504,13 +652,13 @@ export async function sendAdminRequestNotification(
 
   const { subject, text, html } = adminRequestEmailContent(ticket);
 
-  const recipient = adminKycRecipient();
+  const recipient = supportRecipient();
   const result = await sendEmail({
     to: recipient,
     subject,
     text,
     html,
-    replyTo: replyToAddress(ticket.ticket_code, ticket.reply_token),
+    replyTo: replyToAddress(ticket.reply_token),
     idempotencyKey: `kyc-admin-${ticket.ticket_code}`,
   });
 
@@ -558,14 +706,29 @@ export async function sendUserRequestSubmittedEmail(
 
   const { subject, text, html } = userSubmittedEmailContent(ticket);
 
-  await sendEmail({
+  const result = await sendEmail({
     to: recipient,
     subject,
     text,
     html,
-    replyTo: replyToAddress(ticket.ticket_code, ticket.reply_token),
+    replyTo: replyToAddress(ticket.reply_token),
     idempotencyKey: `kyc-user-submitted-${ticket.ticket_code}`,
   });
+
+  // Store the outbound provider id so the user can reply straight to this mail
+  // and have the answer matched back to the same ticket by thread id.
+  if (result.suppressed || !result.id) {
+    return true;
+  }
+
+  const admin = serviceClient();
+  const { error } = await admin.rpc("record_outbound_email", {
+    p_ticket_id: ticket.id,
+    p_provider_message_id: result.id,
+  });
+  if (error) {
+    console.error("Could not record outbound email id for %s: %s", ticket.ticket_code, error.message);
+  }
 
   return true;
 }

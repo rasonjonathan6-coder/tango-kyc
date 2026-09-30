@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
+import '../theme/app_theme.dart';
 import 'aurora.dart';
 
 /// A rounded, colour-coded status pill.
@@ -162,7 +163,7 @@ class ErrorState extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Try again'),
+                label: const Text('Réessayer'),
                 style: OutlinedButton.styleFrom(minimumSize: const Size(160, 46)),
               ),
             ],
@@ -174,6 +175,10 @@ class ErrorState extends StatelessWidget {
 }
 
 /// A labelled form field with consistent spacing and error presentation.
+///
+/// Rendered as the same glass panel as [NeonField] so the signed-in forms read
+/// as one family with the authentication screens. The API and the underlying
+/// [TextFormField] behaviour are unchanged.
 class LabeledField extends StatelessWidget {
   const LabeledField({
     super.key,
@@ -191,6 +196,7 @@ class LabeledField extends StatelessWidget {
     this.validator,
     this.obscureText = false,
     this.suffix,
+    this.icon,
   });
 
   final String label;
@@ -208,32 +214,115 @@ class LabeledField extends StatelessWidget {
   final bool obscureText;
   final Widget? suffix;
 
+  /// Leading glyph shown inside the field. Defaults to the neon "field" glyph so
+  /// every labelled input keeps the premium look even without an explicit icon.
+  final IconData? icon;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final glass = isDark
+        ? const Color(0xFF1E143C).withValues(alpha: 0.70)
+        : Colors.white;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: isDark
+                ? const Color(0xFFCDBDF0)
+                : theme.colorScheme.onSurfaceVariant,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+          ),
         ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          enabled: enabled,
-          keyboardType: keyboardType,
-          textInputAction: textInputAction,
-          autofillHints: autofillHints,
-          maxLines: obscureText ? 1 : maxLines,
-          obscureText: obscureText,
-          onFieldSubmitted: onSubmitted,
-          validator: validator,
-          decoration: InputDecoration(
-            hintText: hint,
-            errorText: errorText,
-            helperText: helper,
-            suffixIcon: suffix,
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+            gradient: isDark ? AppTheme.neonHairline : null,
+            color: isDark ? null : theme.colorScheme.outlineVariant,
+            borderRadius: BorderRadius.circular(30),
+          ),
+          padding: EdgeInsets.all(isDark ? 1.6 : 1),
+          child: Container(
+            decoration: BoxDecoration(
+              color: glass,
+              borderRadius: BorderRadius.circular(28),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(
+                  icon ?? Icons.edit_note_rounded,
+                  size: 24,
+                  color: isDark
+                      ? AppColors.violetBright.withValues(alpha: 0.95)
+                      : theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: TextFormField(
+                    controller: controller,
+                    enabled: enabled,
+                    keyboardType: keyboardType,
+                    textInputAction: textInputAction,
+                    autofillHints: autofillHints,
+                    maxLines: obscureText ? 1 : maxLines,
+                    obscureText: obscureText,
+                    onFieldSubmitted: onSubmitted,
+                    validator: validator,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: hint,
+                      hintStyle: TextStyle(
+                        color: isDark
+                            ? const Color(0xFF9A88C4).withValues(alpha: 0.85)
+                            : theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.8),
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      errorText: errorText,
+                      helperText: helper,
+                      helperStyle: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontSize: 12.5,
+                      ),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 18),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
+                      errorStyle: TextStyle(
+                        color: isDark
+                            ? const Color(0xFFFF8FA8)
+                            : theme.colorScheme.error,
+                        fontSize: 12.5,
+                        height: 1.25,
+                      ),
+                      errorMaxLines: 2,
+                      suffixIcon: suffix,
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 0,
+                        minHeight: 0,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -305,5 +394,5 @@ String formatDate(DateTime date) {
 String formatDateTime(DateTime date) {
   final hour = date.hour.toString().padLeft(2, '0');
   final minute = date.minute.toString().padLeft(2, '0');
-  return '${formatDate(date)} at $hour:$minute';
+  return '${formatDate(date)} à $hour:$minute';
 }

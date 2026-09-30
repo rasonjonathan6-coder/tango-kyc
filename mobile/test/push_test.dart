@@ -37,6 +37,7 @@ class FakePushService implements PushService {
   int registerCalls = 0;
   int unregisterCalls = 0;
   bool initialized = false;
+  NotificationPermission permission = NotificationPermission.granted;
 
   @override
   Future<bool> initialize() async {
@@ -49,6 +50,16 @@ class FakePushService implements PushService {
 
   @override
   Future<void> unregisterCurrentToken() async => unregisterCalls += 1;
+
+  @override
+  Future<NotificationPermission> notificationPermission() async =>
+      permission;
+
+  @override
+  Future<NotificationPermission> requestNotificationPermission() async {
+    permission = NotificationPermission.granted;
+    return permission;
+  }
 
   @override
   Stream<PushEvent> get onTicketOpen => _controller.stream;
@@ -109,7 +120,7 @@ Widget _host({
           create: (_) => NotificationsController(kyc)),
     ],
     child: MaterialApp(
-      home: RootGate(realtime: FakeRealtimeService(), linkStream: const Stream.empty()),
+      home: RootGate(realtime: FakeRealtimeService(), linkStream: const Stream.empty(), splashMinimum: Duration.zero),
     ),
   );
 }

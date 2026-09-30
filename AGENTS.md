@@ -199,12 +199,18 @@ reads "received / under review". Pass `request.paymentRequired` and
 
 ## Keeping the backend test suites honest
 
-Two suites encode security expectations that changed with the removal of the
-user -> admin reply path:
+The user -> admin reply path was removed once, then deliberately restored, so
+the DB suite now pins the *restored* contract rather than the removal:
 
-- `tests/db/run_tests.sql` asserts `user_post_message` is *refused* for every
-  authenticated caller (`permission denied`, because execute is revoked). It no
-  longer asserts a user can post.
+- `tests/db/run_tests.sql` section 11 asserts `user_post_message` is callable by
+  `authenticated` and enforces, in the function body, the four rules that make
+  that grant safe: `auth.uid()` present (`AUTH_REQUIRED` otherwise), ticket
+  ownership (`FORBIDDEN`), ticket status (`TICKET_CLOSED` for the owner of a
+  closed ticket) and the 5-per-minute limit (`RATE_LIMITED`). It also asserts
+  the 20 000-character cap truncates rather than fails, that `anon` still has no
+  execute grant, and that a refused reply writes no row. `public.messages` has
+  no author column, so "the author is the caller" is asserted via
+  `sender_type = 'user'` plus ownership of the ticket.
 - The MVola sections set `payment_required` (`test_harness.new_ticket(..., true)`)
   before opening a payment directly, while `create_kyc_request` sets it itself
   when MVola is enabled. Sections 14b/14c and 20/21 pin the create-time gate, the
@@ -267,14 +273,81 @@ requested at sign-in.
 - Screens mount their own Scaffold (for AppBar/back) but set
   backgroundColor: Colors.transparent so the single root aurora shows through.
 - Copy is French across auth, OTP, home, requests, settings, profile, admin and
-  onboarding. The French strings are asserted in mobile/test/screens_test.dart
-  and mobile/test/otp_test.dart.
+  onboarding. The French strings are asserted in mobile/test/screens_test.dart,
+  mobile/test/otp_test.dart and mobile/test/french_copy_test.dart.
+
+## Product copy is French — 2026-09-28
+
+The reference artwork is French and the audience is French-speaking, so an
+English string that reaches a user is a defect, not a style choice. A sweep of
+`mobile/lib/ui/` found the older auth, MVola and admin screens had English
+labels while the newer screens (onboarding, request-sent, help/support,
+support-chat) were already French; those are now localised too.
+
+`mobile/test/french_copy_test.dart` pins the user-visible wording of every
+screen that renders without a backend (splash, onboarding, login, register,
+forgot-password, request-sent, help/support). When a label is reworded, update
+the expectation there; an English label should never come back silently.
+
+Three things that look like English strings but are **not** copy — leave them
+alone:
+
+- `'WELCOME'` / `'TK-…'` are backend data sentinels compared against
+  `registerValue` / `ticketCode`, never rendered as a label.
+- `'admin'` / `'user'` / `'welcome'` are `role` and notification-`type` keys
+  mapped to French in `switch` expressions.
+- `'Email'`, `'Support'` and `'Tango KYC Verification'` are correct French
+  (and the product name).
+
+## Master backdrop measurement — 2026-09-27
+
+The reference mockups live at `/workspace/artifacts/mockup/screens/` (18 PNGs,
+small: 72–211 px wide). Compare renders to them **after resizing the render to
+the mockup's pixel size** — the mockups are low-res, and comparing a 360 px
+render against them directly manufactures a false brightness gap.
+
+Method that worked: mask to the darkest pixels (`luma < 22`), then average per
+cell of a 6x6 grid. That isolates the canvas from cards and text.
+
+- The canvas is **cool**. Over the dark background the mockup measures
+  R/B ≈ 0.09 and G/B ≈ 0.13. An all-magenta/violet pool set cannot reach that:
+  it lands near R/B ≈ 0.29, i.e. three times too red. The fix is a broad, low
+  blue wash (`AppColors.poolCanvasBlue`, radius > viewport width, halo only)
+  plus a teal pool (`AppColors.poolTeal`) for the green channel, with the
+  magenta pools kept **small and inside the top/bottom bands** so they cannot
+  tint the content area.
+- A pool whose `radius` fraction exceeds 0.5 skips the bright core pass (the
+  painter does this) — a core that wide reads as a hotspot in mid-page.
+- Dark-mode cards are **blue glass**, not neutral grey: the mockup reads
+  `rgb(0, 8, 44)`. `AppColors.glassFill` carries that tint; a white wash
+  desaturates the composition and raises the red channel.
+- Remaining per-screen deltas (home hero, loading, profile) are **content**
+  weight — the mockup thumbnails carry fewer/lighter widgets than the real
+  screens — not backdrop error. Do not chase them by dimming the canvas.
+
+`AuthHalo` no longer exists (it was removed with the auth-kit rewrite); the
+backdrop is the single `AuroraBackground` at the root.
+
+### Reading the mockups without vision — 2026-09-28
+
+An agent session may have no vision: image reads return a text description and
+browser screenshots are written to disk as a path, never as pixels. Do not
+claim a visual comparison was done when it was not. Two things *do* work and
+are worth using instead:
+
+- **Text**: `tesseract` is installed with `fra`+`eng`. Upscale the thumbnail 6x
+  with LANCZOS, then
+  `tesseract /tmp/ocr.png - -l fra+eng --psm 6`. That recovered every mockup's
+  title, labels and button text, which is how the English-copy gaps above were
+  found. OCR is unreliable on tiny text, so treat it as strong evidence for
+  wording, not for exact glyphs.
+- **Colour/geometry**: measure pixels numerically (PIL/numpy) rather than
+  eyeballing — see the method above.
 
 ## Login screen (premium auth pass) — 2026-09-28
 
-- mobile/lib/ui/widgets/auth_kit.dart owns the auth visual kit: AuthHalo (the
-  static five-pool magenta/violet/rose/cyan backdrop, layered over the app-level
-  aurora), BrandLockup (mark + "Tango" + gradient "Live" badge), NeonField
+- mobile/lib/ui/widgets/auth_kit.dart owns the auth visual kit: BrandLockup
+  (mark + "Tango" + gradient "Live" badge), NeonField
   (glass field framed by a 1.6dp gradient hairline, large leading icon, lavender
   label, focus bloom), GlassActionCard (tappable glass surface), GoogleGlyph
   (the four-colour ring, painted — the project ships no Google asset),
@@ -331,3 +404,104 @@ Notes:
 - Output: mobile/build/app/outputs/flutter-apk/app-release.apk (~56 MB).
 - Published for download by copying it to /workspace/public_apk/ and serving that
   directory: python3 -m http.server 12000 --bind 0.0.0.0.
+
+## Firebase Android config — 2026-09-28
+
+`mobile/android/app/google-services.json` is the **real** config for the
+`tango-kyc` Firebase project (package `com.tango.kyc.tango_kyc_verification`).
+It is gitignored (root `.gitignore` and `mobile/android/.gitignore`) and must
+never be committed or printed.
+
+A release build **is** a valid Firebase check: the Google Services Gradle plugin
+bakes `project_info` into `resources.arsc` as `google_app_id`,
+`gcm_defaultSenderId`, `google_api_key` and the project id. After a build,
+confirm the config actually landed rather than trusting the on-disk file:
+
+```bash
+python3 - <<'PY'
+import zipfile
+z=zipfile.ZipFile('build/app/outputs/flutter-apk/app-release.apk')
+arsc=z.read('resources.arsc')
+for k in (b'gcm_defaultSenderId', b'google_app_id', b'google_api_key'):
+    assert k in arsc, k
+PY
+```
+
+Caveat: this proves the config was packaged, not that FCM delivers. Delivery,
+project liveness and API-key authorisation need a real device and a real send.
+
+The upload flow drops user-supplied files under `/home/openhands/workspace/`;
+they do **not** land at their target path automatically. Check there when a file
+is reported uploaded but missing.
+
+Release signing reads `android/key.properties` (KEYSTORE_PATH/PASSWORD, KEY_ALIAS,
+KEY_PASSWORD) with `upload-keystore.jks` resolved relative to the app module —
+i.e. `android/app/upload-keystore.jks`. `apksigner verify --print-certs` should
+show `CN=Tango KYC Verification, OU=Release`; a debug-signed artifact is not
+publishable.
+
+## User replies on a ticket (in-app discussion) — 2026-09-29
+
+The in-app reply is the counterpart of an inbound email reply: both land as a
+`user` row in `public.messages` on the same ticket. The write path is
+`reply-to-ticket` Edge Function -> `public.user_post_message`.
+
+The trap: `user_post_message` is `security definer` and derives the author from
+`auth.uid()`. An Edge Function that calls it with `serviceClient()` sends the
+service-role key, whose JWT has **no `sub` claim**, so `auth.uid()` is NULL and
+the RPC fails with `AUTH_REQUIRED` — even for a legitimately authenticated user.
+Every function that calls a user-scoped SQL function must use
+`userClient(caller.token)` (see `mvola-payments`), never `serviceClient()`.
+
+The closed-ticket rule is enforced in SQL, not only in the UI: a ticket whose
+status is `closed` raises `TICKET_CLOSED`, mapped in `_shared/http.ts` and shown
+in French by `ErrorMessages`. The Flutter composer is hidden for a closed ticket
+and reloads the ticket when the server answers `TICKET_CLOSED`, so a ticket
+closed mid-session flips to read-only.
+
+`verify_jwt = false` is correct for `reply-to-ticket` (like the other functions):
+`requireUser` verifies the token in code, and `verify_jwt = true` would reject
+the CORS preflight. The call still carries the user's JWT because
+`client.functions.invoke` attaches the session token.
+
+### Brand mark
+
+Use `BrandMark` (`lib/ui/widgets/brand_mark.dart`), which renders
+`assets/logo_transparent.png`. `LogoMark` in `aurora.dart` is the legacy
+gradient-plate-with-Material-icon mark; do not reintroduce it for brand identity.
+
+### Four-tab shell
+
+`AppShell` exposes Accueil | Historique | Profil | Paramètres. All four are built
+inside an `IndexedStack`, so every tab's providers must be present even when
+another tab is shown (the settings tab needs `SettingsController`). Widget tests
+that mount `AppShell` must provide `AuthController`, `KycController`,
+`NotificationsController` **and** `SettingsController`.
+
+### Email roles and ticket-id exposure
+
+Two mail roles are distinct and neither falls back to the other:
+
+- `ADMIN_EMAIL` — the administration identity (the human who acts in the admin
+  dashboard). Read by `adminEmail()`; unset raises `ADMIN_EMAIL_NOT_CONFIGURED`.
+- `KYC_SUPPORT_EMAIL` (alias `KYC_RECIPIENT_EMAIL`) — the société/support KYC
+  mailbox. It receives the approved KYC request and the user's in-app messages,
+  and replies to them. Read by `supportRecipient()`; unset raises
+  `KYC_SUPPORT_EMAIL_NOT_CONFIGURED`, deliberately not falling back to
+  `ADMIN_EMAIL`, so KYC data is never mailed to the wrong mailbox.
+
+No outbound email exposes the ticket code or uuid. The `Reply-To` is always the
+tokenised inbound address (`reply+<reply_token>@…`), so replies are matched
+server-side by token and thread id. `record_inbound_reply` refuses a reply on a
+`closed` ticket with `TICKET_CLOSED` (no message stored, ticket never reopened);
+`email-webhook` acknowledges such an event instead of returning 500, so the
+provider stops retrying.
+
+Inbound thread resolution (`resolve_ticket_for_reply` step 3) builds the id array
+with a subquery, not by assigning set-returning `regexp_matches(..., 'g')` to a
+`text[]` scalar — a real `References` chain carries several ids, and the scalar
+assignment raised `query returned more than one row`.
+
+When a user replies in-app, `reply-to-ticket` emails the support mailbox through
+`sendUserMessageToSupport`; the idempotency key is the stored message row id, so
+a retried call is suppressed while a genuinely new message is always sent.

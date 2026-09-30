@@ -1,4 +1,8 @@
 /// Full history of the signed-in user's manual KYC verification requests.
+///
+/// La maquette (écran 9, « Mes tickets ») montre une liste de cartes compactes :
+/// code du ticket, intitulé, date, et un statut à droite. Chaque carte ouvre le
+/// détail.
 library;
 
 import 'package:flutter/material.dart';
@@ -9,18 +13,29 @@ import '../../models/models.dart';
 import '../../state/kyc_controller.dart';
 import '../../state/notifications_controller.dart';
 import '../theme/app_theme.dart';
+import '../widgets/aurora.dart';
 import '../widgets/common.dart';
 import '../widgets/modern.dart';
+import '../widgets/tango_scaffold.dart';
 import 'request_details_screen.dart';
 
 class MyRequestsScreen extends StatefulWidget {
-  const MyRequestsScreen({super.key});
+  const MyRequestsScreen({super.key, this.embedded = false});
+
+  /// True when hosted inside the shell's [IndexedStack], which supplies the app
+  /// bar. Pushed as its own route it shows its own bar, so it keeps a back
+  /// button and a title.
+  final bool embedded;
 
   @override
   State<MyRequestsScreen> createState() => _MyRequestsScreenState();
 }
 
 class _MyRequestsScreenState extends State<MyRequestsScreen> {
+  /// Which chip is active. Presentation only — every request is still loaded,
+  /// this just narrows what is shown.
+  TicketCategory _filter = TicketCategory.all;
+
   @override
   void initState() {
     super.initState();
@@ -45,19 +60,28 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   Widget build(BuildContext context) {
     final kyc = context.watch<KycController>();
     // The synthetic welcome ticket is not a real request: it is hidden here.
-    final visible = kyc.requests.where((r) => r.registerValue != 'WELCOME').toList();
+    final all = kyc.requests
+        .where((r) => r.registerValue != 'WELCOME')
+        .toList();
+    final visible = _filter == TicketCategory.all
+        ? all
+        : all.where((r) => r.status.category == _filter).toList();
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Historique')),
-      body: RefreshIndicator(
-        onRefresh: _reload,
-        child: _body(kyc, visible),
-      ),
+    return TangoKycScaffold(
+      appBar: widget.embedded ? null : AppBar(title: const Text('Mes tickets')),
+      body: RefreshIndicator(onRefresh: _reload, child: _body(kyc, visible)),
     );
   }
 
   Widget _body(KycController kyc, List<KycRequest> visible) {
+    Widget chips() => Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: _CategoryChips(
+        selected: _filter,
+        onSelected: (value) => setState(() => _filter = value),
+      ),
+    );
+
     if (kyc.loading && kyc.requests.isEmpty) {
       return const SkeletonList();
     }
@@ -66,19 +90,28 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
       return ListView(
         children: [
           SizedBox(height: MediaQuery.of(context).size.height * 0.2),
-          ErrorState(message: ErrorMessages.from(kyc.error!), onRetry: () => kyc.load()),
+          ErrorState(
+            message: ErrorMessages.from(kyc.error!),
+            onRetry: () => kyc.load(),
+          ),
         ],
       );
     }
 
     if (visible.isEmpty) {
       return ListView(
+        padding: AppSpacing.page,
         children: [
-          SizedBox(height: MediaQuery.of(context).size.height * 0.12),
-          const EmptyState(
-            icon: Icons.inbox_rounded,
-            title: 'Aucune demande',
-            message: 'Envoyez une demande de vérification depuis l’accueil.',
+          chips(),
+          SizedBox(height: MediaQuery.of(context).size.height * 0.08),
+          EmptyState(
+            icon: Icons.confirmation_number_outlined,
+            title: _filter == TicketCategory.all
+                ? 'Aucun ticket pour le moment'
+                : 'Aucun ticket « ${_filter.label} »',
+            message: _filter == TicketCategory.all
+                ? 'Vous n’avez pas encore de demande.\nCréez votre premier ticket pour obtenir de l’aide.'
+                : 'Aucun ticket ne correspond à ce filtre pour le moment.',
           ),
         ],
       );
@@ -86,9 +119,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 
     return ListView.builder(
       padding: AppSpacing.page,
-      itemCount: visible.length,
+      itemCount: visible.length + 1,
       itemBuilder: (context, index) {
-        final request = visible[index];
+        if (index == 0) return chips();
+        final request = visible[index - 1];
         return Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _RequestCard(request: request),
@@ -106,61 +140,155 @@ class _RequestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () async {
-          await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => RequestDetailsScreen(ticketId: request.id)),
-          );
-          if (context.mounted) await context.read<KycController>().load();
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Manual KYC Verification',
-                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  StatusPill(status: request.status, compact: true),
-                ],
+    return GlassCard(
+      padding: EdgeInsets.zero,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => RequestDetailsScreen(ticketId: request.id),
               ),
-              const SizedBox(height: 14),
-              InfoRow(label: 'Ticket', value: request.ticketCode),
-              InfoRow(label: 'Statut', value: request.status.label),
-              InfoRow(label: 'Créée le', value: formatDate(request.createdAt)),
-              InfoRow(label: request.registerType.label, value: request.registerValue),
-              if (request.paymentRequired)
-                InfoRow(
-                  label: 'Paiement',
-                  value: request.paymentStatus == 'approved' ? 'Validé' : 'En attente',
-                ),
-              if (request.lastReplyAt != null)
-                InfoRow(label: 'Dernière réponse', value: formatDateTime(request.lastReplyAt!)),
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+            );
+            if (context.mounted) await context.read<KycController>().load();
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      'Open',
-                      style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.confirmation_number_rounded,
+                      size: 18,
+                      color: scheme.primary,
                     ),
-                    Icon(Icons.chevron_right_rounded, color: theme.colorScheme.primary, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        request.ticketCode,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                    StatusPill(status: request.status, compact: true),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  request.registerType.label,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  formatDateTime(request.createdAt),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                if (request.paymentRequired) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Icon(
+                        request.paymentStatus == 'approved'
+                            ? Icons.verified_rounded
+                            : Icons.schedule_rounded,
+                        size: 14,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        request.paymentStatus == 'approved'
+                            ? 'Paiement validé'
+                            : 'Paiement en attente',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (request.lastReplyAt != null) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.mark_email_read_rounded,
+                        size: 14,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Réponse le ${formatDateTime(request.lastReplyAt!)}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The horizontal filter chips from the artwork (screen 9).
+///
+/// The chips are a view over [KycStatus.category]; selecting one only narrows
+/// the already-loaded list, it never queries the server again.
+class _CategoryChips extends StatelessWidget {
+  const _CategoryChips({required this.selected, required this.onSelected});
+
+  final TicketCategory selected;
+  final ValueChanged<TicketCategory> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: TicketCategory.values.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final category = TicketCategory.values[index];
+          final isSelected = category == selected;
+          return ChoiceChip(
+            label: Text(category.label),
+            selected: isSelected,
+            onSelected: (_) => onSelected(category),
+            showCheckmark: false,
+            labelStyle: TextStyle(
+              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              color: isSelected ? scheme.onPrimary : scheme.onSurfaceVariant,
+            ),
+            selectedColor: scheme.primary,
+            backgroundColor: scheme.surfaceContainerHighest.withValues(
+              alpha: 0.5,
+            ),
+            side: BorderSide(
+              color: isSelected ? scheme.primary : scheme.outlineVariant,
+            ),
+          );
+        },
       ),
     );
   }

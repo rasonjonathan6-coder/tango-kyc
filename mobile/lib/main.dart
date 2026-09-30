@@ -36,22 +36,58 @@ import 'ui/screens/reset_password_screen.dart';
 import 'ui/screens/splash_screen.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/widgets/aurora.dart';
+import 'ui/widgets/tango_scaffold.dart';
+
+/// Upper bound on how long the splash may stay up, even if session restore
+/// never reports back. A safety net, not the normal path: the gate still moves
+/// on as soon as `auth.initialized` flips.
+const Duration kSplashMaximumDuration = Duration(seconds: 15);
+
+/// Bound on the one-time Supabase boot. `Supabase.initialize` touches native
+/// storage and starts session recovery; if that stalls the app must still get a
+/// frame instead of hanging on the launcher logo.
+const Duration _supabaseInitTimeout = Duration(seconds: 12);
 
 Future<void> main() async {
+  // If anything in startup throws or never completes, the zone handler still
+  // draws a frame, so the user is never left on a blank launcher logo.
+  runZonedGuarded(() async {
+    await startApp();
+  }, (error, stack) {
+    debugPrint('[startup] uncaught: $error');
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const _StartupErrorApp());
+  });
+}
+
+/// Runs the startup sequence. Split out so a failed boot can be retried from the
+/// error screen without restarting the process.
+Future<void> startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await AppConfig.load();
+  // Config and transport init must never stop the first frame: each is capped,
+  // and each failure lands on a screen that says what happened and offers retry.
+  try {
+    await AppConfig.load();
+  } catch (_) {
+    // Missing or malformed env is handled by the isConfigured check below.
+  }
 
   if (!AppConfig.isConfigured) {
     runApp(const _ConfigurationMissingApp());
     return;
   }
 
-  await Supabase.initialize(
-    url: AppConfig.supabaseUrl,
-    publishableKey: AppConfig.supabaseAnonKey,
-  );
-
+  try {
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      publishableKey: AppConfig.supabaseAnonKey,
+    ).timeout(_supabaseInitTimeout);
+  } catch (error) {
+    debugPrint('[startup] Supabase.initialize failed: $error');
+    runApp(const _SupabaseUnavailableApp());
+    return;
+  }
 
   runApp(const TangoKycApp());
 }
@@ -130,10 +166,25 @@ class _TangoKycAppState extends State<TangoKycApp> {
   }
 }
 
+/// Minimum time the splash stays on screen, in production.
+///
+/// Session restore is a local read that resolves within the first frame, so
+/// without a floor the opening screen would be gone before it could be seen.
+/// This is a *floor*, never a ceiling: the gate still waits for
+/// `auth.initialized`, so a slow restore is shown for longer, not cut short.
+const Duration kSplashMinimumDuration = Duration(seconds: 7);
+
 /// Chooses between the splash, the sign-in screen and the signed-in shell, and
 /// routes OAuth / password-recovery / email-confirmation deep links.
 class RootGate extends StatefulWidget {
-  const RootGate({super.key, this.linkStream, this.initialLink, this.recovering, this.realtime});
+  const RootGate({
+    super.key,
+    this.linkStream,
+    this.initialLink,
+    this.recovering,
+    this.realtime,
+    this.splashMinimum = kSplashMinimumDuration,
+  });
 
   /// Deep-link sources. Production leaves these null and uses [AppLinks]; tests
   /// supply their own so no platform channel is involved.
@@ -148,6 +199,10 @@ class RootGate extends StatefulWidget {
   /// screen without a live deep link.
   final bool? recovering;
 
+  /// How long the splash is shown at minimum. Tests pass [Duration.zero] so the
+  /// opening frame does not have to be awaited.
+  final Duration splashMinimum;
+
   @override
   State<RootGate> createState() => _RootGateState();
 }
@@ -157,12 +212,28 @@ class _RootGateState extends State<RootGate> {
   StreamSubscription<PushEvent>? _pushSubscription;
   RealtimeService? _realtime;
   RealtimeSubscription? _realtimeSubscription;
+  Timer? _splashTimer;
+  Timer? _splashMaxTimer;
+  bool _splashElapsed = false;
+  bool _splashMaxElapsed = false;
   bool _recovering = false;
 
   @override
   void initState() {
     super.initState();
     _recovering = widget.recovering ?? false;
+    if (widget.splashMinimum <= Duration.zero) {
+      _splashElapsed = true;
+    } else {
+      _splashTimer = Timer(widget.splashMinimum, () {
+        if (mounted) setState(() => _splashElapsed = true);
+      });
+    }
+    // Hard ceiling: even if session restore never reports back, the splash
+    // gives way so the user is never trapped on a static logo.
+    _splashMaxTimer = Timer(kSplashMaximumDuration, () {
+      if (mounted) setState(() => _splashMaxElapsed = true);
+    });
     // Null-aware short-circuit: AppLinks is only touched when no test stream is
     // supplied, so widget tests never hit the platform channel.
     _linkSubscription = (widget.linkStream ?? AppLinks().uriLinkStream).listen(
@@ -269,6 +340,8 @@ class _RootGateState extends State<RootGate> {
 
   @override
   void dispose() {
+    _splashTimer?.cancel();
+    _splashMaxTimer?.cancel();
     _stopRealtime();
     _pushSubscription?.cancel();
     _linkSubscription?.cancel();
@@ -336,7 +409,12 @@ class _RootGateState extends State<RootGate> {
           if (mounted) _onAuthChanged();
         });
 
-        if (!auth.initialized || _recovering) {
+        // The splash shows until the session restored AND the minimum opening
+        // time has passed, so the app never jumps straight to the next screen.
+        // The max timer is a safety net: if restore never reports back, the app
+        // still proceeds rather than hanging on the logo.
+        final waitingOnSession = (!auth.initialized || !_splashElapsed) && !_splashMaxElapsed;
+        if (waitingOnSession || _recovering) {
           return const SplashScreen();
         }
         if (auth.isSignedIn) return const AppShell();
@@ -352,6 +430,126 @@ class _RootGateState extends State<RootGate> {
   }
 }
 
+/// Shown when Supabase could not be reached or initialised within the boot
+/// deadline. The app still gets a first frame, tells the user what happened, and
+/// offers to try again — it never hangs on the launcher logo.
+class _SupabaseUnavailableApp extends StatelessWidget {
+  const _SupabaseUnavailableApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      home: TangoKycScaffold(
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.wifi_off_rounded, size: 56),
+                const SizedBox(height: 20),
+                Text(
+                  'Connexion impossible',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Le service est momentanément injoignable. '
+                  'Vérifiez votre connexion internet puis réessayez.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: () {
+                    runApp(const MaterialApp(home: _RetryBoot()));
+                  },
+                  child: const Text('Réessayer'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Retries [startApp] after a failed boot. The underlying error is intentionally
+/// not shown to the user; it is available in `debugPrint` output only.
+class _RetryBoot extends StatefulWidget {
+  const _RetryBoot();
+
+  @override
+  State<_RetryBoot> createState() => _RetryBootState();
+}
+
+class _RetryBootState extends State<_RetryBoot> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(startApp());
+  }
+
+  @override
+  Widget build(BuildContext context) => const _BootSplash();
+}
+
+/// Minimal in-app splash used while [startApp] runs after a retry.
+class _BootSplash extends StatelessWidget {
+  const _BootSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(body: Center(child: CircularProgressIndicator())),
+    );
+  }
+}
+
+/// Last-resort screen for a startup exception caught outside [startApp]'s own
+/// handling. It guarantees a frame is drawn instead of a frozen launcher logo.
+class _StartupErrorApp extends StatelessWidget {
+  const _StartupErrorApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      home: TangoKycScaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline_rounded, size: 56),
+                const SizedBox(height: 20),
+                Text(
+                  'Erreur au démarrage',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                const Text('L\'application n\'a pas pu démarrer.', textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: () => runApp(const MaterialApp(home: _RetryBoot())),
+                  child: const Text('Réessayer'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Shown when the build has no Supabase configuration. It states the problem
 /// plainly instead of failing silently or pretending to work.
 class _ConfigurationMissingApp extends StatelessWidget {
@@ -363,7 +561,7 @@ class _ConfigurationMissingApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      home: Scaffold(
+      home: TangoKycScaffold(
         body: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(28),

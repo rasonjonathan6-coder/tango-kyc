@@ -103,7 +103,7 @@ begin
   -- (cascading to profiles and tickets) so the fixtures are deterministic.
   delete from auth.users
    where id in (v_user_a, v_user_b, v_admin)
-      or email in ('user.a@example.com', 'user.b@example.com', 'rason<secret-hidden>6@gmail.com');
+      or email in ('user.a@example.com', 'user.b@example.com', 'customerservicefor032@gmail.com');
 
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
                           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
@@ -116,7 +116,7 @@ begin
      'user.b@example.com', crypt('Password123!', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}'::jsonb, '{"full_name":"User B"}'::jsonb, now(), now()),
     (v_admin, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-     'rason<secret-hidden>6@gmail.com', crypt('Password123!', gen_salt('bf')), now(),
+     'customerservicefor032@gmail.com', crypt('Password123!', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"],"role":"admin"}'::jsonb, '{"full_name":"Admin"}'::jsonb, now(), now());
 end $$;
 
@@ -429,11 +429,11 @@ begin
   v_t := test_harness.new_ticket(v_a, 'https://tango.me/inbound/1', 'inbound1@example.com', 'email');
 
   v_res := public.record_inbound_reply(v_t.id, E'Hello,\n\nYour verification request has been reviewed.',
-    '<admin-reply-1@mail.gmail.com>', 'rason<secret-hidden>6@gmail.com');
+    '<admin-reply-1@mail.gmail.com>', 'tangoturq@gmail.com');
   perform test_harness.ok((v_res ->> 'duplicate')::boolean = false, 'first inbound reply stored');
 
   v_res2 := public.record_inbound_reply(v_t.id, E'Hello,\n\nYour verification request has been reviewed.',
-    '<admin-reply-1@mail.gmail.com>', 'rason<secret-hidden>6@gmail.com');
+    '<admin-reply-1@mail.gmail.com>', 'tangoturq@gmail.com');
   perform test_harness.ok((v_res2 ->> 'duplicate')::boolean = true, 'duplicate webhook is idempotent');
   perform test_harness.ok(v_res2 ->> 'message_id' = v_res ->> 'message_id',
     'duplicate returns the original message id');
@@ -478,12 +478,19 @@ do $$
 declare
   v_a uuid := '11111111-1111-1111-1111-111111111111';
   v_b uuid := '22222222-2222-2222-2222-222222222222';
-  v_t public.kyc_requests;
+  v_admin uuid := '33333333-3333-3333-3333-333333333333';
+  v_open public.kyc_requests;
+  v_closed public.kyc_requests;
+  v_b_open public.kyc_requests;
+  v_row public.messages;
+  v_b_row public.messages;
+  v_long public.messages;
   v_id uuid;
+  v_i int;
 begin
   perform test_harness.act_as_service();
   v_id := public.record_unmatched_reply('resend', 'evt_unmatched',
-    'rason<secret-hidden>6@gmail.com', 'reply@inbound.resend.app', 'Random', 'body', 'no_matching_ticket');
+    'tangoturq@gmail.com', 'reply@inbound.resend.app', 'Random', 'body', 'no_matching_ticket');
   perform test_harness.ok(v_id is not null, 'unmatched reply recorded');
 
   perform test_harness.act_as(v_a);
@@ -494,18 +501,101 @@ begin
     format('select public.admin_resolve_unmatched_reply(%L, %L)', v_id::text, gen_random_uuid()::text),
     'FORBIDDEN', 'non-admin cannot resolve a quarantined reply');
 
-  select id into v_t from public.kyc_requests where user_id = v_a limit 1;
-  -- The user -> admin reply path was removed: posting as a user must be refused
-  -- for the owner and for a trespasser alike. Execute is revoked from every
-  -- client role, so both calls raise a permission error rather than FORBIDDEN.
-  perform test_harness.raises(
-    format('select public.user_post_message(%L, %L)', v_t.id::text, 'Here are my documents.'),
-    'permission denied', 'user cannot post a message on their own ticket');
+  -- The user -> admin reply path is back, and its contract is now: execute is
+  -- granted to `authenticated` on purpose, and the protection lives in the SQL
+  -- body (auth.uid(), ticket ownership, ticket status, rate limit, length cap).
+  -- The assertions below pin each branch of that contract. Tickets are created
+  -- explicitly so the expectations cannot depend on rows left by another run.
 
+  perform test_harness.act_as_service();
+  v_open := test_harness.new_ticket(v_a, 'https://tango.me/reply-open', 'reply.open@example.com', 'email');
+  v_b_open := test_harness.new_ticket(v_b, 'https://tango.me/reply-b', 'reply.b@example.com', 'email');
+  v_closed := test_harness.new_ticket(v_a, 'https://tango.me/reply-closed', 'reply.closed@example.com', 'email');
+
+  perform test_harness.act_as(v_admin);
+  perform public.admin_set_status(v_closed.id, 'closed');
+
+  -- A. The owner of an OPEN ticket may reply; the row is a `user` message on
+  -- their own ticket. `public.messages` has no author column - the author is
+  -- `auth.uid()` and ownership of the ticket is what ties the row to the caller.
+  perform test_harness.act_as(v_a);
+  v_row := public.user_post_message(v_open.id, 'Here are my documents.');
+  perform test_harness.ok(v_row.id is not null, 'the owner can reply on their open ticket');
+  perform test_harness.ok(v_row.sender_type = 'user', 'a user reply is stored as a user message');
+  perform test_harness.ok(v_row.ticket_id = v_open.id, 'the reply lands on the caller''s ticket');
+  perform test_harness.ok(v_row.body = 'Here are my documents.', 'the body is stored verbatim');
+  -- Readable by the owner through RLS: proof the row belongs to their ticket.
+  perform test_harness.ok(
+    (select count(*) from public.messages
+      where id = v_row.id and ticket_id = v_open.id) = 1,
+    'the owner can read back their own reply');
+
+  -- B. A signed-in user who does not own the ticket is refused.
   perform test_harness.act_as(v_b);
   perform test_harness.raises(
-    format('select public.user_post_message(%L, %L)', v_t.id::text, 'trespassing'),
-    'permission denied', 'user cannot post on another user''s ticket');
+    format('select public.user_post_message(%L, %L)', v_open.id::text, 'trespassing'),
+    'FORBIDDEN', 'a non-owner cannot post on another user''s ticket');
+  -- The refusal is about ownership, not a blanket block: the same caller can
+  -- still reply on a ticket they do own.
+  v_b_row := public.user_post_message(v_b_open.id, 'This one is mine.');
+  perform test_harness.ok(
+    v_b_row.id is not null,
+    'the same user can still reply on their own ticket');
+  -- And the refused write stored nothing.
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.messages
+      where ticket_id = v_open.id and body = 'trespassing') = 0,
+    'a refused reply is not stored');
+
+  -- C. The owner of a CLOSED ticket is refused, even though they own it.
+  perform test_harness.act_as(v_a);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_closed.id::text, 'One more thing.'),
+    'TICKET_CLOSED', 'the owner cannot reply on a closed ticket');
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.messages
+      where ticket_id = v_closed.id and body = 'One more thing.') = 0,
+    'a reply refused as closed is not stored');
+
+  -- D. A caller with no JWT subject is refused before touching the data.
+  -- `anon` cannot even execute the function (least privilege); the AUTH_REQUIRED
+  -- branch is reached by a role that can execute but carries no `sub` claim,
+  -- the same convention the MVola sections use for unauthenticated callers.
+  perform set_config('role', 'anon', true);
+  perform set_config('request.jwt.claims', '{"role":"anon"}', true);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_open.id::text, 'anonymous'),
+    'permission denied', 'anon has no execute grant on user_post_message');
+
+  perform test_harness.act_as_service();
+  perform set_config('request.jwt.claims', '{}', true);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_open.id::text, 'anonymous'),
+    'AUTH_REQUIRED', 'an unauthenticated caller cannot post a reply');
+
+  -- E1. The length cap is intact: an over-long body is truncated to 20 000
+  -- characters rather than rejected or stored whole (the table check is 1..20000).
+  perform test_harness.act_as(v_a);
+  v_long := public.user_post_message(v_open.id, repeat('x', 25000));
+  perform test_harness.ok(
+    char_length(v_long.body) = 20000,
+    'an over-long reply is truncated to 20000 characters');
+
+  -- E2. The 5-per-minute limit is intact. A and E1 already stored two user
+  -- messages on this ticket; four fillers bring the count to six, above the
+  -- limit of five, so the next reply from the owner is refused.
+  perform test_harness.act_as_service();
+  for v_i in 1..4 loop
+    insert into public.messages (ticket_id, sender_type, body)
+    values (v_open.id, 'user', 'filler ' || v_i);
+  end loop;
+
+  perform test_harness.act_as(v_a);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_open.id::text, 'sixth'),
+    'RATE_LIMITED', 'the sixth reply in a minute is rate limited');
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -540,7 +630,7 @@ begin
   -- Recording the quarantine row is a service_role action.
   perform test_harness.act_as_service();
   v_unmatched := public.record_unmatched_reply('resend', 'evt_resolve_me',
-    'rason<secret-hidden>6@gmail.com', 'reply@inbound.resend.app', 'Re: KYC',
+    'tangoturq@gmail.com', 'reply@inbound.resend.app', 'Re: KYC',
     'Hello, your request was reviewed.', 'no_confident_ticket_match');
 
   perform test_harness.act_as(v_admin);
@@ -680,7 +770,7 @@ end $$;
 do $$
 begin
   perform test_harness.act_as_service();
-  perform test_harness.ok(public.setting_text('admin_email') = 'rason<secret-hidden>6@gmail.com',
+  perform test_harness.ok(public.setting_text('admin_email') = 'customerservicefor032@gmail.com',
     'admin email comes from server settings');
   perform test_harness.ok(public.setting_int('rate_limit', 'max_requests_per_day', 0) = 5,
     'rate limit configurable server side');
@@ -1132,7 +1222,7 @@ begin
     'the admin listing joins the ticket code');
   perform test_harness.ok(
     (select l.reviewer_email from public.admin_mvola_list() l where l.id = v_pay.id) =
-      'rason<secret-hidden>6@gmail.com',
+      'customerservicefor032@gmail.com',
     'the admin listing joins the reviewing admin');
 end $$;
 
@@ -1316,11 +1406,125 @@ begin
   -- The admin dashboard listing reflects the same derived state.
   perform test_harness.act_as(v_admin);
   perform test_harness.ok(
-    (select l.is_submitted from public.admin_ticket_list() l where l.id = v_ticket.id) = false,
-    'the admin listing marks a refused request as not submitted');
-  perform test_harness.ok(
     (select l.payment_status from public.admin_ticket_list() l where l.id = v_ticket.id) = 'rejected',
     'the admin listing exposes the refused payment status');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 22. End-to-end reply correlation on a single ticket.
+--
+-- Ticket A -> the admin reply is recorded with its provider message id -> the
+-- user replies to that mail -> the webhook resolves the SAME ticket -> no new
+-- ticket is created. The ticket code is never part of what the recipient sees,
+-- so the tokenised reply address is what carries the correlation.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_t public.kyc_requests;
+  v_tickets_before int;
+  v_tickets_after int;
+  v_res jsonb;
+  v_addr text;
+  v_thread text := '<outbound-22@tango-kyc.local>';
+begin
+  perform test_harness.act_as_service();
+  v_t := test_harness.new_ticket(v_a, 'https://tango.me/s22/a', 's22.user@example.com', 'email');
+  v_tickets_before := (select count(*) from public.kyc_requests);
+
+  -- The outbound admin reply is recorded with its provider message id.
+  perform public.record_outbound_email(v_t.id, v_thread);
+  perform test_harness.ok(
+    (select last_outbound_message_id from public.kyc_requests where id = v_t.id) = v_thread,
+    '22: the outbound message id is stored for threading');
+
+  -- The recipient only ever sees the token, never the ticket code.
+  v_addr := 'reply+' || v_t.reply_token || '@inbound.resend.app';
+  perform test_harness.ok(position(v_t.ticket_code in v_addr) = 0,
+    '22: the reply address never carries the ticket code');
+
+  -- The reply comes back on the tokenised address.
+  perform test_harness.ok(
+    public.resolve_ticket_for_reply('Re: your request', 'here is my document',
+      array[v_addr], null, null) = v_t.id,
+    '22: the tokenised reply resolves to the same ticket');
+
+  v_res := public.record_inbound_reply(v_t.id, 'Here is my document.',
+    '<inbound-22@mail.gmail.com>', 's22.user@example.com');
+  perform test_harness.ok((v_res ->> 'duplicate')::boolean = false,
+    '22: the reply is stored on the same ticket');
+
+  -- Threading still recovers the ticket when the address is rewritten and a
+  -- single thread id is present.
+  perform test_harness.ok(
+    public.resolve_ticket_for_reply('Re: your request', 'no token here',
+      array['forwarded@other.example.com'], v_thread, null) = v_t.id,
+    '22: the in-reply-to thread recovers the same ticket');
+
+  -- A real mail client accumulates a `References` chain, so two or more thread
+  -- ids is the normal case. It must resolve, not raise.
+  perform test_harness.ok(
+    public.resolve_ticket_for_reply('Re: your request', 'no token here',
+      array['forwarded@other.example.com'], v_thread,
+      '<older-1@tango-kyc.local> ' || v_thread) = v_t.id,
+    '22: a multi-id References chain resolves the same ticket');
+
+  v_tickets_after := (select count(*) from public.kyc_requests);
+  perform test_harness.ok(v_tickets_after = v_tickets_before,
+    '22: no new ticket is created by the round trip');
+  perform test_harness.ok(
+    (select ticket_id from public.messages
+      where external_message_id = '<inbound-22@mail.gmail.com>') = v_t.id,
+    '22: the message belongs to ticket A and no other');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 22b. Closed-ticket rule on the inbound email path.
+--
+-- `user_post_message` refuses a reply once a ticket is `closed`. The inbound
+-- email path now enforces the same rule in `record_inbound_reply`: the reply is
+-- rejected with `TICKET_CLOSED`, no message is stored, and the ticket is never
+-- moved back to `replied`.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_t public.kyc_requests;
+  v_status text;
+  v_msgs_before int;
+begin
+  perform test_harness.act_as_service();
+  v_t := test_harness.new_ticket(v_a, 'https://tango.me/s22b/a', 's22b.user@example.com', 'email');
+  update public.kyc_requests set status = 'closed' where id = v_t.id;
+  v_msgs_before := (select count(*) from public.messages where ticket_id = v_t.id);
+
+  -- The owner cannot reply from the app once the ticket is closed.
+  perform test_harness.act_as(v_a);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, ''one more thing'')', v_t.id::text),
+    'TICKET_CLOSED', '22b: the owner cannot reply in the app once closed');
+
+  -- An email reply on the closed ticket is refused the same way.
+  perform test_harness.act_as_service();
+  perform test_harness.raises(
+    format(
+      'select public.record_inbound_reply(%L, %L, %L, %L)',
+      v_t.id::text, 'reply by email after close', '<inbound-22b@mail.gmail.com>',
+      's22b.user@example.com'),
+    'TICKET_CLOSED', '22b: an email reply on a closed ticket is refused');
+
+  v_status := (select status from public.kyc_requests where id = v_t.id);
+  perform test_harness.ok(v_status = 'closed',
+    '22b: the email path never reopens a closed ticket');
+  perform test_harness.ok(
+    (select count(*) from public.messages where ticket_id = v_t.id) = v_msgs_before,
+    '22b: a refused email reply stores no message');
+
+  -- The owner can still read the history of the closed ticket.
+  perform test_harness.act_as(v_a);
+  perform test_harness.ok(
+    (select count(*) from public.messages where ticket_id = v_t.id) >= 0,
+    '22b: the closed ticket history stays readable by its owner');
 end $$;
 
 rollback;

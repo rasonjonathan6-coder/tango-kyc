@@ -10,7 +10,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/validators.dart';
 import '../../state/auth_controller.dart';
-import '../widgets/common.dart';
+import '../theme/app_theme.dart';
+import '../widgets/aurora.dart';
+import '../widgets/auth_kit.dart';
+import '../widgets/tango_scaffold.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -77,13 +80,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _resend() async {
     final auth = context.read<AuthController>();
-    final ok = await auth.resendConfirmation(Validators.normalize(_emailController.text));
+    final ok = await auth.resendConfirmation(
+      Validators.normalize(_emailController.text),
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ok
-            ? 'Confirmation email sent.'
-            : ErrorMessages.from(auth.lastError ?? '')),
+        content: Text(
+          ok
+              ? 'Email de confirmation envoyé.'
+              : ErrorMessages.from(auth.lastError ?? ''),
+        ),
       ),
     );
   }
@@ -91,41 +98,68 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
-    final theme = Theme.of(context);
 
     if (_awaitingConfirmation) {
-      return Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(title: const Text('Confirm your email')),
-        body: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+      return AuthBackground(
+        child: TangoKycScaffold(
+          body: AuthScreenLayout(
             children: [
-              const SizedBox(height: 24),
-              Icon(Icons.mark_email_unread_rounded, size: 64, color: theme.colorScheme.primary),
-              const SizedBox(height: 24),
-              Text(
-                'Check your inbox',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              const Reveal(child: Center(child: BrandLockup())),
+              const SizedBox(height: 22),
+              const Reveal(
+                delay: Duration(milliseconds: 60),
+                child: LogoMark(
+                  size: 74,
+                  animate: false,
+                  iconSize: 34,
+                  icon: Icons.mark_email_unread_rounded,
+                ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                'We sent a confirmation link to ${Validators.normalize(_emailController.text)}. '
-                'Open it on this device to activate your account, then sign in.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(height: 20),
+              Reveal(
+                delay: const Duration(milliseconds: 90),
+                child: Text(
+                  'Vérifiez votre boîte mail',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                  ),
+                ),
               ),
-              const SizedBox(height: 32),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Back to sign in'),
+              const SizedBox(height: 10),
+              Reveal(
+                delay: const Duration(milliseconds: 120),
+                child: AuthSubtitle(
+                  'Ouvrez le lien envoyé à ${Validators.normalize(_emailController.text)} '
+                  'sur cet appareil pour activer votre compte, puis connectez-vous.',
+                  fontSize: 16,
+                ),
               ),
-              const SizedBox(height: 4),
-              TextButton(
-                onPressed: auth.busy ? null : _resend,
-                child: const Text('Resend confirmation email'),
+              const SizedBox(height: 30),
+              Reveal(
+                delay: const Duration(milliseconds: 160),
+                child: GradientButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  height: 60,
+                  radius: 32,
+                  gradient: AppTheme.actionGradient,
+                  icon: Icons.login_rounded,
+                  child: const Text('Retour à la connexion'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Reveal(
+                delay: const Duration(milliseconds: 200),
+                child: Center(
+                  child: AuthTextLink(
+                    label: 'Renvoyer l’email de confirmation',
+                    color: AppColors.magenta,
+                    onPressed: auth.busy ? null : _resend,
+                  ),
+                ),
               ),
             ],
           ),
@@ -133,91 +167,161 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Create an account')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Create your account to submit and track a manual KYC review request.',
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 26),
-                    LabeledField(
-                      label: 'Full name (optional)',
+    return AuthBackground(
+      child: TangoKycScaffold(
+        body: AuthScreenLayout(
+          children: [
+            const Reveal(child: Center(child: BrandLockup())),
+            const SizedBox(height: 14),
+            const Reveal(
+              delay: Duration(milliseconds: 50),
+              child: AuthHeading(
+                lines: [
+                  [HeadingSegment('Créer votre')],
+                  [HeadingSegment('compte', gradient: true)],
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Reveal(
+              delay: const Duration(milliseconds: 80),
+              child: AuthSubtitle(
+                'Quelques informations suffisent pour soumettre\net suivre votre demande KYC.',
+              ),
+            ),
+            const SizedBox(height: 22),
+            Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Reveal(
+                    delay: const Duration(milliseconds: 110),
+                    child: NeonField(
+                      label: 'Nom complet (optionnel)',
                       controller: _nameController,
-                      hint: 'Your name',
+                      hint: 'Nom complet',
+                      icon: Icons.person_outline_rounded,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.name],
                       enabled: !auth.busy,
                     ),
-                    const SizedBox(height: 18),
-                    LabeledField(
+                  ),
+                  const SizedBox(height: 14),
+                  Reveal(
+                    delay: const Duration(milliseconds: 140),
+                    child: NeonField(
                       label: 'Email',
                       controller: _emailController,
-                      hint: 'you@example.com',
+                      hint: 'vous@exemple.com',
+                      icon: Icons.alternate_email_rounded,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.email],
                       enabled: !auth.busy,
                       validator: Validators.validateEmail,
                     ),
-                    const SizedBox(height: 18),
-                    LabeledField(
-                      label: 'Password',
+                  ),
+                  const SizedBox(height: 14),
+                  Reveal(
+                    delay: const Duration(milliseconds: 170),
+                    child: NeonField(
+                      label: 'Mot de passe',
                       controller: _passwordController,
-                      hint: 'At least 8 characters',
+                      hint: 'Votre mot de passe',
+                      icon: Icons.lock_rounded,
                       obscureText: _obscure,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.newPassword],
                       enabled: !auth.busy,
                       validator: Validators.validatePassword,
-                      suffix: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                      suffix: _EyeToggle(
+                        obscure: _obscure,
                         onPressed: () => setState(() => _obscure = !_obscure),
-                        tooltip: _obscure ? 'Show password' : 'Hide password',
                       ),
                     ),
-                    const SizedBox(height: 18),
-                    LabeledField(
-                      label: 'Confirm password',
+                  ),
+                  const SizedBox(height: 14),
+                  Reveal(
+                    delay: const Duration(milliseconds: 200),
+                    child: NeonField(
+                      label: 'Confirmez le mot de passe',
                       controller: _confirmController,
-                      hint: 'Repeat your password',
+                      hint: 'Confirmez votre mot de passe',
+                      icon: Icons.lock_outline_rounded,
                       obscureText: _obscure,
                       textInputAction: TextInputAction.done,
                       enabled: !auth.busy,
-                      validator: (value) => Validators.validatePasswordConfirmation(
-                        _passwordController.text,
-                        value,
-                      ),
+                      validator: (value) =>
+                          Validators.validatePasswordConfirmation(
+                            _passwordController.text,
+                            value,
+                          ),
                       onSubmitted: (_) => _submit(),
                     ),
-                    const SizedBox(height: 28),
-                    FilledButton(
+                  ),
+                  const SizedBox(height: 22),
+                  Reveal(
+                    delay: const Duration(milliseconds: 240),
+                    child: GradientButton(
                       onPressed: auth.busy ? null : _submit,
-                      child: auth.busy
-                          ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2.4),
-                            )
-                          : const Text('Create account'),
+                      busy: auth.busy,
+                      height: 62,
+                      radius: 32,
+                      gradient: AppTheme.actionGradient,
+                      icon: Icons.person_add_alt_1_rounded,
+                      child: const Text('Créer mon compte'),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 16),
+                  Reveal(
+                    delay: const Duration(milliseconds: 280),
+                    child: Center(
+                      child: AuthTextLink(
+                        label: 'Vous avez déjà un compte ? Se connecter',
+                        color: AppColors.magenta,
+                        chevron: true,
+                        onPressed: auth.busy
+                            ? null
+                            : () => Navigator.of(context).maybePop(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Reveal(
+                    delay: Duration(milliseconds: 310),
+                    child: AuthFooter(),
+                  ),
+                ],
               ),
             ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The eye affordance on the password field, matching the login screen.
+class _EyeToggle extends StatelessWidget {
+  const _EyeToggle({required this.obscure, required this.onPressed});
+
+  final bool obscure;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        tooltip: obscure ? 'Afficher' : 'Masquer',
+        icon: Icon(
+          obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+          size: 22,
+          color: context.tokens.textSecondary,
         ),
       ),
     );

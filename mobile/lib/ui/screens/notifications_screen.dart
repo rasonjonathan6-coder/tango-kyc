@@ -12,9 +12,9 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/notifications_controller.dart';
 import '../theme/app_theme.dart';
-import '../widgets/aurora.dart';
 import '../widgets/common.dart';
 import '../widgets/modern.dart';
+import '../widgets/tango_scaffold.dart';
 import 'request_details_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -46,8 +46,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget build(BuildContext context) {
     final controller = context.watch<NotificationsController>();
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
+    return TangoKycScaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
@@ -58,11 +57,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
         ],
       ),
-      body: AuroraBackground(
-        child: RefreshIndicator(
-          onRefresh: controller.load,
-          child: _body(controller),
-        ),
+      body: RefreshIndicator(
+        onRefresh: controller.load,
+        child: _body(controller),
       ),
     );
   }

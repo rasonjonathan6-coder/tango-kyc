@@ -17,6 +17,7 @@ import { extractCleanReplyBody, sanitizeForStorage } from "../_shared/email-body
 import {
   emailSendingConfigured,
   fetchReceivedEmail,
+  replyToAddress,
   sendEmail,
   userReplyRecipient,
 } from "../_shared/email-provider.ts";
@@ -177,6 +178,14 @@ Deno.serve(async (req) => {
       p_from_email: extractAddress(email.from),
     });
     if (storeError) {
+      // A reply that arrives after the ticket was closed must not reopen it or
+      // add a message. This is an expected outcome, not a server error: the
+      // event is acknowledged so the provider stops retrying, and the reply is
+      // not forwarded to the user.
+      if (storeError.message?.includes("TICKET_CLOSED")) {
+        console.warn("Reply for closed ticket %s ignored.", ticketId);
+        return jsonResponse({ matched: true, ticket_closed: true, stored: false });
+      }
       console.error("record_inbound_reply failed:", storeError.message);
       throw new AppError("INTERNAL", "Could not store the reply", 500);
     }
@@ -277,7 +286,7 @@ async function notifyUser(ticketId: string): Promise<boolean> {
 
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("ticket_code, register_type, register_value")
+    .select("ticket_code, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -304,21 +313,43 @@ async function notifyUser(ticketId: string): Promise<boolean> {
     return false;
   }
 
+  // No ticket code in the subject or the body: the code is an internal routing
+  // handle. The answer is matched server side from the tokenised Reply-To and
+  // the thread ids, so the mail stays clean for the recipient.
   const text = [
-    "Your Tango KYC verification request has received a new response.",
+    "Bonjour,",
     "",
-    `Ticket ID: ${ticket.ticket_code}`,
+    "Votre demande de vérification de compte a reçu une nouvelle réponse.",
     "",
-    "Please open the Tango KYC Verification application to view the response.",
+    "Vous pouvez répondre directement à cet email, ou ouvrir l'application Tango KYC Verification pour consulter la réponse.",
+    "",
+    "Merci d'utiliser Tango KYC Verification.",
   ].join("\n");
 
   try {
-    await sendEmail({
+    const result = await sendEmail({
       to: recipient,
-      subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
+      subject: "Réponse à votre demande de vérification de compte",
       text,
+      replyTo: replyToAddress(ticket.reply_token as string),
       idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${recipient}`,
     });
+
+    // Record the outbound provider id so a reply to this very mail is matched
+    // back to the same ticket by thread id even if the address is rewritten.
+    if (!result.suppressed && result.id) {
+      const { error: recordError } = await admin.rpc("record_outbound_email", {
+        p_ticket_id: ticketId,
+        p_provider_message_id: result.id,
+      });
+      if (recordError) {
+        console.error(
+          "Could not record outbound email id for %s: %s",
+          ticket.ticket_code,
+          recordError.message,
+        );
+      }
+    }
   } catch (error) {
     // The reply is already stored, so a failed notification must not fail the
     // webhook: the provider would retry the whole event otherwise.

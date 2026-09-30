@@ -185,7 +185,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          home: RootGate(linkStream: links, initialLink: initialLink),
+          home: RootGate(linkStream: links, initialLink: initialLink, splashMinimum: Duration.zero),
         ),
       );
     }

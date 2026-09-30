@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/validators.dart';
 import '../../state/auth_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/tango_scaffold.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -47,7 +48,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password updated.')),
+      const SnackBar(content: Text('Mot de passe mis à jour.')),
     );
     Navigator.of(context).pop();
   }
@@ -57,11 +58,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     final auth = context.watch<AuthController>();
     final theme = Theme.of(context);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Choose a new password')),
-      body: SafeArea(
-        child: SingleChildScrollView(
+    return TangoKycScaffold(
+      appBar: AppBar(title: const Text('Choisissez un nouveau mot de passe')),
+      body: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           child: Center(
             child: ConstrainedBox(
@@ -72,13 +71,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Choose a new password for your account.',
+                      'Choisissez un nouveau mot de passe pour votre compte.',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 26),
                     LabeledField(
-                      label: 'New password',
+                      label: 'Nouveau mot de passe',
                       controller: _passwordController,
                       hint: 'At least 8 characters',
                       obscureText: _obscure,
@@ -89,14 +88,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       suffix: IconButton(
                         icon: Icon(_obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded),
                         onPressed: () => setState(() => _obscure = !_obscure),
-                        tooltip: _obscure ? 'Show password' : 'Hide password',
+                        tooltip: _obscure ? 'Afficher le mot de passe' : 'Masquer le mot de passe',
                       ),
                     ),
                     const SizedBox(height: 18),
                     LabeledField(
-                      label: 'Confirm new password',
+                      label: 'Confirmez le nouveau mot de passe',
                       controller: _confirmController,
-                      hint: 'Repeat your password',
+                      hint: 'Confirmez votre mot de passe',
                       obscureText: _obscure,
                       textInputAction: TextInputAction.done,
                       enabled: !auth.busy,
@@ -115,7 +114,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                               width: 22,
                               child: CircularProgressIndicator(strokeWidth: 2.4),
                             )
-                          : const Text('Update password'),
+                          : const Text('Mettre à jour'),
                     ),
                   ],
                 ),
@@ -123,7 +122,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             ),
           ),
         ),
-      ),
     );
   }
 }

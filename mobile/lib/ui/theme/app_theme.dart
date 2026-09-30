@@ -18,6 +18,18 @@ abstract final class AppSpacing {
 
   /// Standard page padding: comfortable on small Android screens.
   static const EdgeInsets page = EdgeInsets.fromLTRB(18, 10, 18, 34);
+
+  /// Widest the Home content column is allowed to grow.
+  ///
+  /// Decisions are driven by the space actually available, never by a device
+  /// class: past this width the column is centred instead of stretched, so a
+  /// large window keeps a readable line length rather than a sparse one.
+  static const double maxContentWidth = 560;
+
+  /// Horizontal page padding that adapts to the real width: narrower gutters on
+  /// a small canvas, roomier ones once there is space to spare.
+  static EdgeInsets pageFor(double width) =>
+      EdgeInsets.fromLTRB(width < 360 ? 14 : 18, 10, width < 360 ? 14 : 18, 34);
 }
 
 /// Corner radii, from chips up to hero surfaces.
@@ -29,12 +41,14 @@ abstract final class AppRadius {
   static const double pill = 999;
 }
 
-/// The brand palette, read from the product artwork.
+/// The brand palette, measured off the reference artwork.
 ///
-/// The canvas is a near-black navy (`#05010F`) rather than pure black, so the
-/// violet auras have something to bloom against.
+/// The canvas is a near-black navy rather than pure black, so the luminous
+/// pools have something to bloom against. [canvasDark] and [canvasDeep] are the
+/// measured top and bottom of the backdrop's vertical ramp.
 abstract final class AppColors {
-  static const Color canvasDark = Color(0xFF05010F);
+  static const Color canvasDark = Color(0xFF01011A);
+  static const Color canvasDeep = Color(0xFF000010);
   static const Color surfaceDark = Color(0xFF130B23);
   static const Color surfaceHigh = Color(0xFF1B1130);
 
@@ -57,8 +71,75 @@ abstract final class AppColors {
   /// Indigo used for the cool corner of the background.
   static const Color indigo = Color(0xFF3B2BFF);
 
+  // The measured backdrop pool colours. Kept here, next to the palette, so
+  // the backdrop painter and any future preview share one definition.
+  static const Color poolMagentaTop = Color(0xFFF902C5);
+  static const Color poolMagentaLow = Color(0xFFF302C8);
+  static const Color poolVioletLow = Color(0xFF5F0EFD);
+  static const Color poolBlue = Color(0xFF1A43A8);
+  static const Color poolDeepBlue = Color(0xFF090D6D);
+  static const Color poolIndigo = Color(0xFF3E15D9);
+
+  /// The cool teal-green pools. Measured off the reference, the canvas is not
+  /// purely magenta/violet: the mid and upper right carry a teal glow whose
+  /// green channel is what keeps the composition from reading as a warm bruise.
+  static const Color poolTeal = Color(0xFF0FA3B1);
+  static const Color poolTealDeep = Color(0xFF0B6E99);
+
+  /// The broad canvas wash. Deliberately a pure blue, so the page floor is cool
+  /// and the tight magenta accents above it never tint the whole screen.
+  static const Color poolCanvasBlue = Color(0xFF1326C8);
+
+  /// The dark-mode glass fill for cards and grouped surfaces.
+  ///
+  /// Measured off the reference: a card over the canvas reads as a *blue*
+  /// translucent panel (roughly `rgb(0, 8, 44)`), not a neutral grey one. A
+  /// white wash would desaturate the composition and push the red channel up,
+  /// so the glass carries its own blue instead.
+  static const Color glassFill = Color(0xFF0050D7);
+
   static const Color canvasLight = Color(0xFFF7F4FD);
   static const Color surfaceLight = Color(0xFFFFFFFF);
+
+  /// Text colours per brightness. Centralised so a screen never hardcodes a
+  /// white that only reads on the dark canvas: the light mode swaps in near-black
+  /// ink instead of leaving white-on-white.
+  static const Color textPrimaryDark = Color(0xFFF5F7FF);
+  static const Color textSecondaryDark = Color(0xFFB8C5E8);
+  static const Color textPrimaryLight = Color(0xFF160B24);
+  static const Color textSecondaryLight = Color(0xFF4A3D63);
+}
+
+/// Theme-aware colour tokens, resolved from the ambient [Theme].
+///
+/// Screens read `context.tokens.textSecondary` instead of hardcoding a colour, so
+/// switching Android between dark and light repaints every surface consistently.
+extension AppTokensX on BuildContext {
+  AppTokens get tokens => Theme.of(this).brightness == Brightness.dark
+      ? const AppTokens.dark()
+      : const AppTokens.light();
+}
+
+class AppTokens {
+  const AppTokens.dark()
+      : isDark = true,
+        textPrimary = AppColors.textPrimaryDark,
+        textSecondary = AppColors.textSecondaryDark,
+        icon = AppColors.textPrimaryDark,
+        border = const Color(0xFF382A56);
+
+  const AppTokens.light()
+      : isDark = false,
+        textPrimary = AppColors.textPrimaryLight,
+        textSecondary = AppColors.textSecondaryLight,
+        icon = AppColors.textPrimaryLight,
+        border = const Color(0xFFD8CCEE);
+
+  final bool isDark;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color icon;
+  final Color border;
 }
 
 class AppTheme {
@@ -118,14 +199,16 @@ class AppTheme {
     stops: [0.0, 0.52, 1.0],
   );
 
-  /// The primary action gradient: rose to violet to electric blue.
+  /// The primary action gradient, measured off the reference artwork's sign-in
+  /// call to action: neon rose through violet to electric blue.
   ///
-  /// Wider than [brandGradient] and brighter at both ends, so the main call to
-  /// action reads as the single brightest object on a screen.
+  /// This is the only sanctioned primary fill. Screens choose it by using
+  /// [GradientButton] rather than building a gradient of their own, so the main
+  /// action reads as the single brightest object on every page.
   static const LinearGradient actionGradient = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
-    colors: [Color(0xFFFF0A8A), Color(0xFFA000FF), Color(0xFF168CFF)],
+    colors: [Color(0xFFFC25B6), Color(0xFFA000FF), Color(0xFF168CFD)],
     stops: [0.0, 0.52, 1.0],
   );
 
@@ -165,12 +248,14 @@ class AppTheme {
     final radius = BorderRadius.circular(AppRadius.lg);
     if (brightness == Brightness.dark) {
       return CardThemeData(
-        color: AppColors.surfaceDark,
+        // Translucent glass, not an opaque slab: the master aurora backdrop is
+        // painted once at the root and must stay visible through every card.
+        color: AppColors.glassFill.withValues(alpha: 0.14),
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: radius,
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.65)),
         ),
       );
     }

@@ -39,6 +39,11 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   List<StatusHistoryEntry> _history = const [];
   bool _loading = true;
   String? _error;
+  
+  // Reply composer state
+  final TextEditingController _replyController = TextEditingController();
+  final FocusNode _replyFocus = FocusNode();
+  bool _sending = false;
 
   @override
   void initState() {
@@ -50,6 +55,43 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Sends the reply currently in the composer.
+  ///
+  /// Guarded against a double tap: [_sending] short-circuits a second call while
+  /// the first is in flight, and the field is cleared only on success so a
+  /// network failure never loses what the user typed. A `TICKET_CLOSED` answer
+  /// flips the screen to read-only instead of leaving the composer enabled.
+  Future<void> _send() async {
+    if (_sending) return;
+    final body = _replyController.text.trim();
+    if (body.isEmpty) return;
+
+    setState(() => _sending = true);
+    final message = await context.read<KycController>().reply(
+      ticketId: widget.ticketId,
+      body: body,
+    );
+    if (!mounted) return;
+    setState(() => _sending = false);
+
+    if (message == null) {
+      final code = context.read<KycController>().replyErrorCode ?? 'INTERNAL';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(ErrorMessages.from(code))));
+      if (code == 'TICKET_CLOSED') await _load();
+      return;
+    }
+
+    _replyController.clear();
+    setState(() => _messages = [..._messages, message]);
+    // Bring the new message into view.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    ));
   }
 
   Future<void> _load() async {

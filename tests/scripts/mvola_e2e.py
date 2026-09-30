@@ -110,7 +110,7 @@ def main():
     suffix = "mvola-e2e-1"
     user_a_email = f"user.a+{suffix}@example.com"
     user_b_email = f"user.b+{suffix}@example.com"
-    admin_email = ENV.get("ADMIN_EMAIL", "rason<secret-hidden>6@gmail.com")
+    admin_email = ENV.get("ADMIN_EMAIL", "customerservicefor032@gmail.com")
     password = "Password123!"
 
     print("== Setup: users ==")

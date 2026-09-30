@@ -225,7 +225,7 @@ class SupabaseAuthService implements AuthService {
   Future<Profile> loadProfile() async {
     final user = _auth.currentUser;
     if (user == null) {
-      throw const AuthException('No signed-in user.');
+      throw const AuthException('Aucun utilisateur connecté.');
     }
 
     // RLS restricts this row to the caller, and the role column can only be

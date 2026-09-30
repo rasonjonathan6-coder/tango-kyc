@@ -55,9 +55,10 @@ update public.app_settings
 ```
 
 The anti-spam limits are the live values here. Note that the `admin_email` row is
-**not** read by the functions: the support address comes from the `ADMIN_EMAIL`
-environment variable (an Edge Function secret). Change it with
-`supabase secrets set ADMIN_EMAIL=...`, not with SQL.
+**not** read by the functions: the administration identity comes from the
+`ADMIN_EMAIL` environment variable and the société/support KYC mailbox from
+`KYC_SUPPORT_EMAIL` (both Edge Function secrets). Change them with
+`supabase secrets set ADMIN_EMAIL=... KYC_SUPPORT_EMAIL=...`, not with SQL.
 
 Anti-spam has two independent limits, both stored in the `rate_limit` row of
 `public.app_settings` (not in environment variables): a cooldown between distinct
@@ -139,10 +140,10 @@ write. Promote an account with:
 ```sql
 update auth.users
    set raw_app_meta_data = raw_app_meta_data || '{"role":"admin"}'::jsonb
- where email = 'rasonjonathan6@gmail.com';
+ where email = 'customerservicefor032@gmail.com';
 
 update public.profiles set role = 'admin'
- where id = (select id from auth.users where email = 'rasonjonathan6@gmail.com');
+ where id = (select id from auth.users where email = 'customerservicefor032@gmail.com');
 ```
 
 Then sign out and back in so the new token carries the claim. Role checks run in

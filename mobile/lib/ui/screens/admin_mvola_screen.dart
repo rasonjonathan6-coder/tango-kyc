@@ -13,6 +13,7 @@ import '../../models/models.dart';
 import '../../state/admin_mvola_controller.dart';
 import '../../state/auth_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/tango_scaffold.dart';
 
 class AdminMvolaScreen extends StatefulWidget {
   const AdminMvolaScreen({super.key});
@@ -40,12 +41,11 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
       return const EmptyState(
         icon: Icons.lock_outline_rounded,
         title: 'Admin access required',
-        message: 'Your account does not have permission to view this queue.',
+        message: 'Votre compte n’a pas la permission de consulter cette file.',
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
+    return TangoKycScaffold(
       appBar: AppBar(
         title: const Text('MVola payments'),
         actions: [
@@ -68,13 +68,13 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
                     children: [
-                      Text('Awaiting verification',
+                      Text('En attente de vérification',
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
                       Text(
-                        'A user confirmed a transfer and entered a reference. '
-                        'Check the reference against the MVola statement before deciding.',
+                        'Un utilisateur a confirmé un transfert et saisi une référence. '
+                        'Vérifiez la référence sur le relevé MVola avant de décider.',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                       ),
@@ -84,7 +84,7 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
                           child: EmptyState(
                             icon: Icons.inbox_rounded,
                             title: 'Nothing to verify',
-                            message: 'No payment is waiting for a decision.',
+                            message: 'Aucun paiement en attente de décision.',
                           ),
                         )
                       else
@@ -98,7 +98,7 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
                             ),
                           ),
                       const SizedBox(height: 24),
-                      Text('All payments',
+                      Text('Tous les paiements',
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 12),
@@ -107,7 +107,7 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
                           child: EmptyState(
                             icon: Icons.receipt_long_outlined,
                             title: 'No payments',
-                            message: 'No MVola payment has been started yet.',
+                            message: 'Aucun paiement MVola n’a encore été initié.',
                           ),
                         )
                       else
@@ -124,10 +124,10 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
 
   Future<void> _approve(MvolaPayment payment) async {
     final confirmed = await _confirm(
-      title: 'Approve this payment?',
-      message: 'Approve ${payment.amountLabel} for ${payment.ticketCode ?? 'this request'}. '
-          'Only do this once you have matched the reference against the MVola statement.',
-      confirmLabel: 'Approve',
+      title: 'Approuver ce paiement ?',
+      message: 'Approuver ${payment.amountLabel} pour ${payment.ticketCode ?? 'cette demande'}. '
+          'À faire uniquement après avoir vérifié la référence sur le relevé MVola.',
+      confirmLabel: 'Approuver',
     );
     if (!confirmed || !mounted) return;
 
@@ -137,7 +137,7 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
       decision: MvolaStatus.approved,
     );
     if (!mounted) return;
-    _report(ok, controller.lastErrorCode, 'Payment approved.');
+    _report(ok, controller.lastErrorCode, 'Paiement approuvé.');
   }
 
   Future<void> _reject(MvolaPayment payment) async {
@@ -151,7 +151,7 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
       reason: reason,
     );
     if (!mounted) return;
-    _report(ok, controller.lastErrorCode, 'Payment refused.');
+    _report(ok, controller.lastErrorCode, 'Paiement refusé.');
   }
 
   void _report(bool ok, String? code, String successMessage) {
@@ -175,7 +175,7 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: const Text('Annuler'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -195,13 +195,13 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) => AlertDialog(
-          title: const Text('Refuse this payment'),
+          title: const Text('Refuser ce paiement'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'Explain what is wrong so the user can correct it. '
-                'This message is shown to them.',
+                'Expliquez le problème pour que l’utilisateur puisse corriger. '
+                'Ce message lui sera affiché.',
               ),
               const SizedBox(height: 14),
               TextField(
@@ -219,18 +219,18 @@ class _AdminMvolaScreenState extends State<AdminMvolaScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: const Text('Annuler'),
             ),
             FilledButton(
               onPressed: () {
                 final value = controller.text.trim();
                 if (value.length < 3) {
-                  setState(() => error = 'Please write at least a few words.');
+                  setState(() => error = 'Veuillez saisir au moins quelques mots.');
                   return;
                 }
                 Navigator.of(dialogContext).pop(value);
               },
-              child: const Text('Refuse'),
+              child: const Text('Refuser'),
             ),
           ],
         ),
@@ -283,9 +283,9 @@ class _PaymentCard extends StatelessWidget {
             InfoRow(label: 'Amount', value: payment.amountLabel),
             InfoRow(
               label: 'Reference',
-              value: payment.transactionReference ?? 'Not provided',
+              value: payment.transactionReference ?? 'Non renseigné',
               valueWidget: payment.transactionReference == null
-                  ? Text('Not provided',
+                  ? Text('Non renseigné',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant))
                   : SelectableText(
@@ -294,7 +294,7 @@ class _PaymentCard extends StatelessWidget {
                     ),
             ),
             if (payment.payerNumber != null)
-              InfoRow(label: 'Paid from', value: payment.payerNumber!),
+              InfoRow(label: 'Payé depuis', value: payment.payerNumber!),
             InfoRow(label: 'Started', value: formatDateTime(payment.createdAt)),
             if (payment.submittedAt != null)
               InfoRow(label: 'Submitted', value: formatDateTime(payment.submittedAt!)),
@@ -310,7 +310,7 @@ class _PaymentCard extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: onReject,
                       icon: const Icon(Icons.close_rounded, size: 18),
-                      label: const Text('Refuse'),
+                      label: const Text('Refuser'),
                       style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
                     ),
                   ),
@@ -319,7 +319,7 @@ class _PaymentCard extends StatelessWidget {
                     child: FilledButton.icon(
                       onPressed: onApprove,
                       icon: const Icon(Icons.check_rounded, size: 18),
-                      label: const Text('Approve'),
+                      label: const Text('Approuver'),
                       style: FilledButton.styleFrom(minimumSize: const Size(0, 46)),
                     ),
                   ),

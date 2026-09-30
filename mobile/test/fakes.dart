@@ -192,6 +192,7 @@ class FakeKycService implements KycService {
     this.requests = const [],
     this.statusHistoryEntries = const [],
     this.notificationItems = const [],
+    this.messageItems = const [],
     this.failNotificationsWithCode,
   });
 
@@ -200,6 +201,10 @@ class FakeKycService implements KycService {
   final List<KycRequest> requests;
   final List<StatusHistoryEntry> statusHistoryEntries;
   final List<NotificationItem> notificationItems;
+
+  /// Messages returned by [messages], so a ticket's conversation can be rendered
+  /// without a backend.
+  final List<TicketMessage> messageItems;
 
   /// When set, the notification reads fail with this code, so error handling
   /// can be exercised without a network.
@@ -242,7 +247,32 @@ class FakeKycService implements KycService {
   }
 
   @override
-  Future<List<TicketMessage>> messages(String ticketId) async => const [];
+  Future<List<TicketMessage>> messages(String ticketId) async =>
+      messageItems.where((m) => m.ticketId == ticketId).toList();
+
+  final List<({String ticketId, String body})> replies = [];
+
+  /// When set, a reply fails with this code, so the closed-ticket and network
+  /// error paths can be exercised without a backend.
+  String? failReplyWithCode;
+
+  @override
+  Future<TicketMessage> replyToTicket({
+    required String ticketId,
+    required String body,
+  }) async {
+    if (failReplyWithCode != null) {
+      throw KycServiceException(failReplyWithCode!, 'boom');
+    }
+    replies.add((ticketId: ticketId, body: body));
+    return TicketMessage(
+      id: 'reply-${replies.length}',
+      ticketId: ticketId,
+      senderType: SenderType.user,
+      body: body,
+      createdAt: DateTime.now(),
+    );
+  }
 
   @override
   Future<List<StatusHistoryEntry>> statusHistory(String ticketId) async {
@@ -449,4 +479,45 @@ class FakeAdminMvolaService implements AdminMvolaService {
     _payments[index] = updated;
     return updated;
   }
+}
+
+/// In-memory admin service, mirroring the read/act split of the real one.
+class FakeAdminService implements AdminService {
+  FakeAdminService({this.requests = const [], this.unmatched = const []});
+
+  final List<KycRequest> requests;
+  final List<UnmatchedReply> unmatched;
+
+  int statusCalls = 0;
+  int postCalls = 0;
+  int paymentCalls = 0;
+
+  @override
+  Future<AdminStats> stats() async => AdminStats(
+        total: requests.length,
+        pending: requests.where((r) => r.status == KycStatus.pending).length,
+        inReview: requests.where((r) => r.status == KycStatus.inReview).length,
+        replied: requests.where((r) => r.status == KycStatus.replied).length,
+        closed: requests.where((r) => r.status == KycStatus.closed).length,
+        unmatched: unmatched.length,
+      );
+
+  @override
+  Future<({List<KycRequest> tickets, List<UnmatchedReply> unmatched})> list() async =>
+      (tickets: requests, unmatched: unmatched);
+
+  @override
+  Future<List<TicketMessage>> messages(String ticketId) async => const [];
+
+  @override
+  Future<void> setStatus(String ticketId, KycStatus status) async => statusCalls += 1;
+
+  @override
+  Future<void> postMessage(String ticketId, String body) async => postCalls += 1;
+
+  @override
+  Future<void> resolveUnmatched(String unmatchedId, String ticketId) async {}
+
+  @override
+  Future<void> requestPayment(String ticketId) async => paymentCalls += 1;
 }

@@ -16,6 +16,7 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/mvola_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/tango_scaffold.dart';
 
 class MvolaPaymentScreen extends StatefulWidget {
   const MvolaPaymentScreen({
@@ -90,7 +91,7 @@ class _MvolaPaymentScreenState extends State<MvolaPaymentScreen> {
       _referenceController.clear();
       _payerController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Payment details sent. Support will verify your transfer.')),
+        const SnackBar(content: Text('Détails envoyés. Le support vérifiera votre transfert.')),
       );
     } else {
       _showError(controller.lastErrorCode);
@@ -119,7 +120,7 @@ class _MvolaPaymentScreenState extends State<MvolaPaymentScreen> {
   void _dialFailed() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Could not open the dialer. Please compose the USSD code manually.'),
+        content: Text('Impossible d’ouvrir le composeur. Saisissez le code USSD manuellement.'),
       ),
     );
   }
@@ -134,10 +135,9 @@ class _MvolaPaymentScreenState extends State<MvolaPaymentScreen> {
   Widget build(BuildContext context) {
     final controller = context.watch<MvolaController>();
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
+    return TangoKycScaffold(
       appBar: AppBar(
-        title: const Text('Mobile Money payment'),
+        title: const Text('Paiement Mobile Money'),
         actions: [
           IconButton(
             onPressed: controller.loading ? null : () => controller.load(widget.ticketId),
@@ -219,7 +219,7 @@ class _Header extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('MVola payment',
+                  Text('Paiement MVola',
                       style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
                   if (ticketCode != null)
                     Text(ticketCode!,
@@ -232,8 +232,8 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          'Send the amount from your MVola wallet, then enter your transaction '
-          'reference below. Support verifies every transfer manually.',
+          'Envoyez le montant depuis votre portefeuille MVola, puis saisissez la '
+          'référence de la transaction ci-dessous. Le support vérifie chaque transfert.',
           style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
       ],
@@ -266,7 +266,7 @@ class _InstructionsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Payment details',
+            Text('Détails du paiement',
                 style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             InfoRow(
@@ -335,7 +335,7 @@ class _InstructionsCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onDial,
                     icon: const Icon(Icons.dialpad_rounded, size: 19),
-                    label: const Text('Dial'),
+                    label: const Text('Composer'),
                     style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
                   ),
                 ),
@@ -348,7 +348,7 @@ class _InstructionsCard extends StatelessWidget {
                             width: 16, height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.arrow_forward_rounded, size: 19),
-                    label: Text(starting ? 'Please wait...' : 'I have paid'),
+                    label: Text(starting ? 'Veuillez patienter…' : 'J’ai payé'),
                     style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
                   ),
                 ),
@@ -401,7 +401,7 @@ class _PendingCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Payment',
+                      child: Text('Paiement',
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700)),
                     ),
@@ -431,8 +431,8 @@ class _PendingCard extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Your payment is being verified. Support will review your '
-                      'transaction reference and update this request.',
+                      'Votre paiement est en cours de vérification. Le support examinera la '
+                      'référence de la transaction et mettra à jour cette demande.',
                       style: theme.textTheme.bodyMedium,
                     ),
                   ),
@@ -449,12 +449,12 @@ class _PendingCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Confirm your transfer',
+                    Text('Confirmez votre transfert',
                         style: theme.textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 4),
                     Text(
-                      'Enter the reference MVola gave you after the transfer.',
+                      'Saisissez la référence fournie par MVola après le transfert.',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                     ),
@@ -469,7 +469,7 @@ class _PendingCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 14),
                     LabeledField(
-                      label: 'Number you paid from (optional)',
+                      label: 'Numéro payeur (facultatif)',
                       controller: payerController,
                       hint: '+261 34 12 345 67',
                       errorText: payerError,
@@ -486,7 +486,7 @@ class _PendingCard extends StatelessWidget {
                               width: 16, height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.check_rounded, size: 19),
-                      label: Text(submitting ? 'Sending...' : 'Submit payment details'),
+                      label: Text(submitting ? 'Sending...' : 'Envoyer les détails du paiement'),
                       style: FilledButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                     ),
                   ],
@@ -527,7 +527,7 @@ class _DecidedCard extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    approved ? 'Payment approved' : 'Payment refused',
+                    approved ? 'Paiement approuvé' : 'Paiement refusé',
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700, color: color),
                   ),
@@ -537,8 +537,8 @@ class _DecidedCard extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               approved
-                  ? 'Your transfer has been verified. Thank you.'
-                  : 'Support could not verify this transfer.',
+                  ? 'Votre transfert a été vérifié. Merci.'
+                  : 'Le support n’a pas pu vérifier ce transfert.',
               style: theme.textTheme.bodyMedium,
             ),
             if (!approved && payment.rejectionReason != null) ...[
@@ -555,7 +555,7 @@ class _DecidedCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'You can start a new payment from the request screen.',
+                'Vous pouvez démarrer un nouveau paiement depuis l’écran de la demande.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),

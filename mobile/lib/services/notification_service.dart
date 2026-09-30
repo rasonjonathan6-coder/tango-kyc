@@ -58,6 +58,13 @@ String? ticketIdFromData(Map<String, dynamic> data) {
   return (id == null || id.isEmpty) ? null : id;
 }
 
+/// The device's notification-permission state, as far as the app can tell.
+///
+/// [unavailable] means the question cannot be answered — Firebase is not
+/// configured, or the platform has no such permission — in which case the app
+/// must not prompt at all.
+enum NotificationPermission { granted, denied, unavailable }
+
 /// A new push to react to: the ticket to open, if any.
 class PushEvent {
   const PushEvent({this.ticketId});
@@ -76,6 +83,14 @@ abstract class PushService {
   /// Removes the device's token server-side on sign-out.
   Future<void> unregisterCurrentToken();
 
+  /// Reads the current permission state. Must never prompt: this exists so a
+  /// screen can decide whether prompting is even necessary.
+  Future<NotificationPermission> notificationPermission();
+
+  /// Prompts once for the notification permission and reports the outcome.
+  /// Callers are responsible for not asking again after a refusal.
+  Future<NotificationPermission> requestNotificationPermission();
+
   /// Ticket-opening events from notification taps.
   Stream<PushEvent> get onTicketOpen;
 }
@@ -92,6 +107,14 @@ class NoopPushService implements PushService {
 
   @override
   Future<void> unregisterCurrentToken() async {}
+
+  @override
+  Future<NotificationPermission> notificationPermission() async =>
+      NotificationPermission.unavailable;
+
+  @override
+  Future<NotificationPermission> requestNotificationPermission() async =>
+      NotificationPermission.unavailable;
 
   @override
   Stream<PushEvent> get onTicketOpen => const Stream<PushEvent>.empty();
@@ -236,6 +259,47 @@ class FirebasePushService implements PushService {
       await _register(token);
     } catch (_) {
       // Best effort; a later sign-in retries.
+    }
+  }
+
+  /// Reads the permission state without prompting.
+  ///
+  /// `getNotificationSettings` is a read; only `requestPermission` prompts. On
+  /// Android < 13 the platform reports `authorized` because posting is allowed
+  /// by default, which is exactly the answer the UI needs.
+  @override
+  Future<NotificationPermission> notificationPermission() async {
+    if (!_initialized) return NotificationPermission.unavailable;
+    try {
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      return switch (settings.authorizationStatus) {
+        AuthorizationStatus.authorized ||
+        AuthorizationStatus.provisional =>
+          NotificationPermission.granted,
+        AuthorizationStatus.denied => NotificationPermission.denied,
+        AuthorizationStatus.notDetermined => NotificationPermission.denied,
+      };
+    } catch (_) {
+      return NotificationPermission.unavailable;
+    }
+  }
+
+  /// Prompts for the permission exactly once, returning the user's answer.
+  @override
+  Future<NotificationPermission> requestNotificationPermission() async {
+    if (!_initialized) return NotificationPermission.unavailable;
+    try {
+      final settings = await FirebaseMessaging.instance.requestPermission();
+      return switch (settings.authorizationStatus) {
+        AuthorizationStatus.authorized ||
+        AuthorizationStatus.provisional =>
+          NotificationPermission.granted,
+        AuthorizationStatus.denied ||
+        AuthorizationStatus.notDetermined =>
+          NotificationPermission.denied,
+      };
+    } catch (_) {
+      return NotificationPermission.unavailable;
     }
   }
 

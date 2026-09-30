@@ -31,9 +31,9 @@ unreadable rather than open.
 
 `app_settings` holds the rate-limit values, so it is admin-only for reads as
 well. The client never reads it: the app is given the limits it needs through the
-functions' error responses, and the settings are consumed server-side. The
-support address is not stored here — it comes from the `ADMIN_EMAIL` Edge
-Function secret.
+functions' error responses, and the settings are consumed server-side. No
+mailbox is stored here: the administration identity comes from the `ADMIN_EMAIL`
+Edge Function secret and the société/support KYC mailbox from `KYC_SUPPORT_EMAIL`.
 
 The properties the test suite asserts directly:
 
@@ -80,6 +80,7 @@ gated in SQL.
 | `EMAIL_API_KEY` | **Never** | Yes (inbound only) | Example only |
 | `RESEND_WEBHOOK_SECRET` | **Never** | Yes | Example only |
 | `ADMIN_EMAIL` | No | Yes | Example (it is a published address) |
+| `KYC_SUPPORT_EMAIL` | No | Yes | Example (it is a published address) |
 
 `.gitignore` excludes `.env`, `mobile/assets/env`, `google-services.json`,
 keystores and `key.properties`. Verified with `git check-ignore` before the first
@@ -193,5 +194,5 @@ The in-app dashboard and the email notice are the notification path today.
 ## Reporting a problem
 
 This is a small application with a single support mailbox. Security issues should
-go to the address configured in `ADMIN_EMAIL`. Do not open a public issue for a
-vulnerability that could be exploited before it is fixed.
+go to the address configured in `KYC_SUPPORT_EMAIL`. Do not open a public issue
+for a vulnerability that could be exploited before it is fixed.

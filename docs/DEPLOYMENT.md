@@ -35,8 +35,14 @@ supabase secrets set \
   EMAIL_INBOUND_DOMAIN=your-domain.com \
   EMAIL_INBOUND_MAILBOX=reply \
   RESEND_WEBHOOK_SECRET=whsec_xxxxxxxx \
-  ADMIN_EMAIL=rasonjonathan6@gmail.com
+  ADMIN_EMAIL=customerservicefor032@gmail.com \
+  KYC_SUPPORT_EMAIL=tangoturq@gmail.com
 ```
+
+`ADMIN_EMAIL` is the administration identity (the human who acts in the admin
+dashboard); `KYC_SUPPORT_EMAIL` is the société/support KYC mailbox that receives
+the requests and the user's messages and replies to them. They are distinct roles
+and neither falls back to the other.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided by the platform.
 Never add them to the app.

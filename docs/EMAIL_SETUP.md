@@ -115,7 +115,8 @@ supabase secrets set \
   EMAIL_INBOUND_DOMAIN=your-domain.com \
   EMAIL_INBOUND_MAILBOX=reply \
   RESEND_WEBHOOK_SECRET=whsec_xxxxxxxx \
-  ADMIN_EMAIL=rason<secret-hidden>6@gmail.com
+  ADMIN_EMAIL=customerservicefor032@gmail.com \
+  KYC_SUPPORT_EMAIL=tangoturq@gmail.com
 ```
 
 `EMAIL_FROM` is retained for the Resend side but is no longer used for outbound
@@ -145,48 +146,54 @@ and the messages go out as `Tango KYC <customerservicefor032@gmail.com>`. Inboun
 is unchanged: replies keep flowing through Resend and the `email.received`
 webhook, so the `Reply-To` wiring is untouched.
 
-## 8. What the admin receives
+## 8. What the société/support KYC inbox receives
 
-The administration is **only** emailed once an admin has approved the request's
-MVola payment. An unpaid or rejected request never reaches the admin mailbox, so
-nothing here fires on ticket creation.
+The support mailbox (`KYC_SUPPORT_EMAIL`) is **only** emailed once an admin has
+approved the request's MVola payment. An unpaid or rejected request never reaches
+it, so nothing here fires on ticket creation.
 
 Subject, exactly:
 
 ```
-Manual KYC Verification request - Profil Creator (https://tango.me/user) [TNG-KYC-8F42A91C]
+Nouvelle demande de vérification de compte
 ```
 
-The ticket code is appended in square brackets so the required subject text
-stays intact while the machine-readable identifier is still present.
+Neither the subject nor the body carries the ticket code or the ticket uuid: the
+code is an internal routing handle. Replies are matched server-side through the
+tokenised `Reply-To` and the recorded thread ids, so the recipient never has to
+read or preserve an identifier.
 
 Body:
 
 ```
 Hello support tango team,
 
-I am requesting a manual review of my identity verification (KYC).
-
-I have valid official government documents ready for submission to prove my identity.
+A new KYC verification request is ready for manual review.
 
 My account information:
 
 Tango profile ID: https://tango.me/user
 Register email: user@example.com        <-- or "Register number: +261…"
 
+Payment status: approved
+Payment amount: 20000 MGA
+Received: 2026-09-25T11:00:00.000Z
+
 Send me the link for my verification.
 
 Please restart a manual review of my verification status.
 
 Thank you.
-
-Ticket ID: TNG-KYC-8F42A91C
 ```
 
 `Reply-To` is the tokenised inbound address, so support simply hits Reply and
 routing is automatic. `Register email:` and `Register number:` are mutually
 exclusive — exactly one line is emitted, matching the value the user actually
 provided.
+
+When the user writes in the app, the same mailbox receives the message as a
+separate email ("Nouveau message d'un utilisateur - vérification de compte") with
+the same tokenised `Reply-To`, so the société's answer lands on the same ticket.
 
 ## 9. How a reply is matched
 

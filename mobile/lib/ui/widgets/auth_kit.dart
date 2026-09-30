@@ -1,9 +1,11 @@
 /// Premium pieces used by the authentication surfaces.
 ///
-/// A single visual language: a near-black canvas lit by soft magenta/violet/
-/// blue halos, glassy fields framed by a hairline neon gradient, a bright
-/// rose→violet→electric primary action and quiet glass cards for the secondary
-/// entry points.
+/// A single visual language: glassy fields framed by a hairline neon gradient, a
+/// bright rose→violet→electric primary action and quiet glass cards for the
+/// secondary entry points.
+///
+/// The backdrop is NOT defined here: the whole app shares the one master
+/// backdrop painted at the root (see [AuroraBackground] in `aurora.dart`).
 ///
 /// Everything here is presentational. No screen reaches the network through this
 /// file, and none of it owns authentication state — the login screen keeps its
@@ -16,71 +18,72 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'aurora.dart';
+import 'brand_mark.dart';
 
-/// The richer halo composition behind the auth screens.
+/// The dedicated art background for the three authentication screens (Login,
+/// Register, Forgot Password).
 ///
-/// Static by design: the app-level [AuroraBackground] already drifts, so this
-/// layer only adds the extra magenta/violet/rose/cyan pools the reference
-/// artwork shows. Static also means widget tests settle instantly.
-class AuthHalo extends StatelessWidget {
-  const AuthHalo({super.key, required this.child});
+/// The artwork already bakes the whole composition — deep navy left, magenta /
+/// violet / cyan neon on the right — so it is used verbatim as a full-bleed
+/// cover, with the content sitting over it. Unlike the shared app canvas, the
+/// artwork stays dark in both brightnesses, so this subtree pins
+/// [ThemeMode.dark]: the fields, headings and links keep the neon treatment the
+/// mockup calls for instead of flipping to a light theme over a dark picture.
+class AuthBackground extends StatelessWidget {
+  const AuthBackground({super.key, required this.child});
+
+  /// Cover artwork for the auth surfaces. Declared in the pubspec (`assets/`).
+  static const String asset =
+      'assets/file_000000001fc482078d578b26c2203e44.png';
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    if (Theme.of(context).brightness != Brightness.dark) return child;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const RepaintBoundary(child: CustomPaint(painter: _HaloPainter())),
-        child,
-      ],
+    // Pin only the theme; inherit the ambient locale/direction/medias. The dark
+    // scheme is used as-is so the whole subtree (fields, headings, links)
+    // renders the neon treatment over the artwork.
+    final base = Theme.of(context);
+    final pinned = base.brightness == Brightness.dark ? base : AppTheme.dark();
+
+    return Theme(
+      data: pinned,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              asset,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              // Keep the neon/right side readable on very tall canvases.
+              filterQuality: FilterQuality.medium,
+            ),
+          ),
+          // A left-weighted scrim. The copy lives over the artwork's left/centre,
+          // where the neon is brightest; this keeps the magenta and white text
+          // legible there while leaving the far-right silhouette crisp.
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  stops: [0.0, 0.60, 1.0],
+                  colors: [
+                    Color(0x9E000000),
+                    Color(0x9E000000),
+                    Color(0x00000000),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          child,
+        ],
+      ),
     );
   }
-}
-
-class _HaloPainter extends CustomPainter {
-  const _HaloPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    void halo(Offset center, double radius, Color color, double alpha) {
-      final paint = Paint()
-        ..shader = RadialGradient(
-          colors: [color.withValues(alpha: alpha), color.withValues(alpha: 0)],
-        ).createShader(Rect.fromCircle(center: center, radius: radius));
-      canvas.drawCircle(center, radius, paint);
-    }
-
-    // Five pools, low alpha so text keeps full contrast.
-    halo(Offset(w * 0.02, h * 0.06), w * 0.80, AppColors.magenta, 0.13);
-    halo(Offset(w * 0.50, h * 0.01), w * 0.95, AppColors.violet, 0.15);
-    halo(Offset(w * 1.06, h * 0.28), w * 0.88, AppColors.rose, 0.14);
-    halo(Offset(w * 0.96, h * 0.93), w * 0.92, AppColors.electric, 0.13);
-    halo(Offset(w * 0.04, h * 0.90), w * 0.82, AppColors.violetBright, 0.11);
-
-    // Two barely-there light streaks, purely for texture.
-    final streak = Paint()
-      ..strokeWidth = 1.1
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.white.withValues(alpha: 0),
-          Colors.white.withValues(alpha: 0.045),
-          Colors.white.withValues(alpha: 0),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawLine(Offset(-w * 0.1, h * 0.30), Offset(w * 1.1, h * 0.05), streak);
-    canvas.drawLine(Offset(-w * 0.1, h * 0.72), Offset(w * 1.1, h * 0.95), streak);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// The brand lockup: mark, wordmark and a small gradient "Live" badge.
@@ -94,17 +97,14 @@ class BrandLockup extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        LogoMark(
-          size: markSize,
-          iconSize: markSize * 0.55,
-          animate: false,
-          icon: Icons.verified_user_rounded,
-        ),
+        // The real brand mark, so the auth screens and the home header show the
+        // same lockup instead of a gradient plate with a generic shield icon.
+        BrandMark(height: markSize),
         const SizedBox(width: 11),
-        const Text(
+        Text(
           'Tango',
           style: TextStyle(
-            color: Colors.white,
+            color: context.tokens.textPrimary,
             fontSize: 21,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.3,
@@ -221,7 +221,9 @@ class _NeonFieldState extends State<NeonField> {
         Text(
           widget.label,
           style: TextStyle(
-            color: isDark ? const Color(0xFFCDBDF0) : theme.colorScheme.onSurfaceVariant,
+            color: isDark
+                ? const Color(0xFFCDBDF0)
+                : theme.colorScheme.onSurfaceVariant,
             fontSize: 13,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
@@ -268,7 +270,9 @@ class _NeonFieldState extends State<NeonField> {
                     onFieldSubmitted: widget.onSubmitted,
                     validator: widget.validator,
                     style: TextStyle(
-                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                      color: isDark
+                          ? Colors.white
+                          : theme.colorScheme.onSurface,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -277,7 +281,9 @@ class _NeonFieldState extends State<NeonField> {
                       hintStyle: TextStyle(
                         color: isDark
                             ? const Color(0xFF9A88C4).withValues(alpha: 0.85)
-                            : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                            : theme.colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.8,
+                              ),
                         fontSize: 15.5,
                         fontWeight: FontWeight.w400,
                       ),
@@ -289,7 +295,9 @@ class _NeonFieldState extends State<NeonField> {
                       errorBorder: InputBorder.none,
                       focusedErrorBorder: InputBorder.none,
                       errorStyle: TextStyle(
-                        color: isDark ? const Color(0xFFFF8FA8) : theme.colorScheme.error,
+                        color: isDark
+                            ? const Color(0xFFFF8FA8)
+                            : theme.colorScheme.error,
                         fontSize: 12.5,
                         height: 1.25,
                       ),
@@ -361,7 +369,9 @@ class _GlassActionCardState extends State<GlassActionCard> {
             ),
             color: isDark
                 ? Colors.white.withValues(alpha: 0.055)
-                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.4,
+                  ),
           ),
           child: Material(
             color: Colors.transparent,
@@ -371,7 +381,9 @@ class _GlassActionCardState extends State<GlassActionCard> {
               onTap: active ? widget.onTap : null,
               onTapDown: active ? (_) => setState(() => _pressed = true) : null,
               onTapUp: active ? (_) => setState(() => _pressed = false) : null,
-              onTapCancel: active ? () => setState(() => _pressed = false) : null,
+              onTapCancel: active
+                  ? () => setState(() => _pressed = false)
+                  : null,
               child: SizedBox(
                 height: widget.height,
                 child: Padding(padding: widget.padding, child: widget.child),
@@ -467,7 +479,11 @@ class AuthFooter extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.favorite_rounded, size: 13, color: AppColors.rose.withValues(alpha: 0.9)),
+        Icon(
+          Icons.favorite_rounded,
+          size: 13,
+          color: AppColors.rose.withValues(alpha: 0.9),
+        ),
         const SizedBox(width: 7),
         Flexible(
           child: Text(
@@ -491,7 +507,8 @@ class OrDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final line = Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.28);
+    final line = Theme.of(context).colorScheme.onSurfaceVariant
+        .withValues(alpha: 0.28);
     return Row(
       children: [
         Expanded(child: Divider(color: line, height: 1)),
@@ -500,7 +517,8 @@ class OrDivider extends StatelessWidget {
           child: Text(
             'ou',
             style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.85),
+              color: Theme.of(context).colorScheme.onSurfaceVariant
+                  .withValues(alpha: 0.85),
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.4,
@@ -509,6 +527,240 @@ class OrDivider extends StatelessWidget {
         ),
         Expanded(child: Divider(color: line, height: 1)),
       ],
+    );
+  }
+}
+
+/// One run of a heading: plain white, or painted with the brand ramp.
+class HeadingSegment {
+  const HeadingSegment(this.text, {this.gradient = false});
+
+  final String text;
+  final bool gradient;
+}
+
+/// The large gradient heading shared by every auth surface.
+///
+/// A [Column] of [Wrap] rows, each row a run of segments. This is the same
+/// technique the login title already used — a [ShaderMask] around the single
+/// gradient fragment — so the white runs stay white while the accent carries the
+/// magenta→violet→electric ramp, and a long word still wraps instead of
+/// overflowing.
+class AuthHeading extends StatelessWidget {
+  const AuthHeading({
+    super.key,
+    required this.lines,
+    this.size,
+    this.align = TextAlign.center,
+  });
+
+  final List<List<HeadingSegment>> lines;
+  final double? size;
+  final TextAlign align;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final resolved = size ?? (width * 0.105).clamp(28.0, 42.0);
+    final style = TextStyle(
+      fontSize: resolved,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -0.8,
+      height: 1.14,
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        for (final line in lines)
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: resolved * 0.24,
+            children: [
+              for (final seg in line)
+                seg.gradient
+                    ? ShaderMask(
+                        shaderCallback: (bounds) =>
+                            AppTheme.brandGradient.createShader(bounds),
+                        child: Text(
+                          seg.text,
+                          textAlign: align,
+                          style: style.copyWith(color: Colors.white),
+                        ),
+                      )
+                    : Text(
+                        seg.text,
+                        textAlign: align,
+                        style: style.copyWith(
+                          color: context.tokens.textPrimary,
+                        ),
+                      ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// Centred content column for the auth pages.
+///
+/// Keeps the reference reading order — lockup, heading, copy, fields, action —
+/// inside a scroll view so a short screen scrolls rather than overflowing.
+class AuthScreenLayout extends StatelessWidget {
+  const AuthScreenLayout({
+    super.key,
+    required this.children,
+    this.maxWidth = 440,
+    this.padding = const EdgeInsets.fromLTRB(22, 8, 22, 20),
+  });
+
+  final List<Widget> children;
+  final double maxWidth;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: padding,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The centred explanatory line under an auth heading.
+///
+/// A descendant widget on purpose: it reads [AppTokensX.tokens] below
+/// [AuthBackground]'s pinned dark [Theme], so the copy keeps its dark-mode
+/// colour even when the app itself is in light mode.
+class AuthSubtitle extends StatelessWidget {
+  const AuthSubtitle(this.text, {super.key, this.fontSize = 17});
+
+  final String text;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: context.tokens.textSecondary.withValues(alpha: 0.92),
+        fontSize: fontSize,
+        height: 1.4,
+      ),
+    );
+  }
+}
+
+/// A quiet centred link, optionally neon-tinted and with a trailing chevron.
+class AuthTextLink extends StatelessWidget {
+  const AuthTextLink({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.color,
+    this.chevron = false,
+    this.fontSize = 15,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final Color? color;
+  final bool chevron;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        minimumSize: const Size(0, 40),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: color ?? Colors.white,
+        textStyle: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Flexible(child: Text(label, textAlign: TextAlign.center)),
+          if (chevron) ...[
+            const SizedBox(width: 3),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: fontSize - 3,
+              color: color ?? Colors.white,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A glass tile behind one OTP digit.
+///
+/// Presentation only: the single real [TextField] lives in the parent and is
+/// layered over a row of these, so no code-input behaviour is added here.
+class GhostTile extends StatelessWidget {
+  const GhostTile({
+    super.key,
+    required this.filled,
+    this.char = '',
+    this.size = 38,
+  });
+
+  final bool filled;
+  final String char;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      width: size,
+      height: size + 14,
+      decoration: BoxDecoration(
+        gradient: AppTheme.neonHairline,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: filled
+            ? AppTheme.glow(AppColors.cyan, opacity: 0.26, blur: 14)
+            : null,
+      ),
+      padding: const EdgeInsets.all(1.6),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E143C).withValues(alpha: 0.74),
+          borderRadius: BorderRadius.circular(13.4),
+        ),
+        child: Center(
+          child: Text(
+            char,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.62,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

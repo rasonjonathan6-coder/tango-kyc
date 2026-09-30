@@ -17,10 +17,10 @@ enum KycStep {
 
   /// Human label shown in the journey timeline.
   String get label => switch (this) {
-        KycStep.submitted => 'Request submitted',
-        KycStep.payment => 'MVola payment',
-        KycStep.review => 'Manual review',
-        KycStep.answer => 'Answer from support',
+        KycStep.submitted => 'Demande soumise',
+        KycStep.payment => 'Paiement MVola',
+        KycStep.review => 'Vérification manuelle',
+        KycStep.answer => 'Réponse du support',
       };
 
   /// 1-based position, for progress display.
@@ -47,12 +47,14 @@ String nextActionHint(
     switch (status) {
       KycStatus.pending => paymentRequired
           ? (isSubmitted
-              ? 'Your request has been received. Support will review it shortly.'
-              : 'Your request is ready. Complete the MVola payment to finalise the submission.')
-          : 'Your request has been received. Support will review it shortly.',
-      KycStatus.inReview => 'Support is reviewing your documents. No action needed.',
-      KycStatus.replied => 'Support replied. Open the ticket to read the message.',
-      KycStatus.closed => 'This request is closed. You can submit a new one if needed.',
+              ? 'Votre demande a été reçue. Le support va l’examiner rapidement.'
+              : 'Votre demande est prête. Effectuez le paiement MVola pour finaliser l’envoi.')
+          : 'Votre demande a été reçue. Le support va l’examiner rapidement.',
+      KycStatus.inReview =>
+        'Le support examine vos informations. Aucune action n’est requise.',
+      KycStatus.replied => 'Le support a répondu. Ouvrez le ticket pour lire le message.',
+      KycStatus.closed =>
+        'Cette demande est fermée. Vous pouvez en soumettre une nouvelle si besoin.',
     };
 
 /// The furthest step reached for a given status.

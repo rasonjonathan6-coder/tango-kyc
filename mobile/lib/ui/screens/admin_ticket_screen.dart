@@ -9,6 +9,7 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/admin_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/tango_scaffold.dart';
 
 class AdminTicketScreen extends StatefulWidget {
   const AdminTicketScreen({super.key, required this.ticketId});
@@ -50,7 +51,7 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
       final messages = await admin.messages(widget.ticketId);
       final ticket = admin.tickets.firstWhere(
         (t) => t.id == widget.ticketId,
-        orElse: () => throw const FormatException('Ticket not in the current listing.'),
+        orElse: () => throw const FormatException('Ticket absent de la liste actuelle.'),
       );
       if (!mounted) return;
       setState(() {
@@ -128,12 +129,11 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
+    return TangoKycScaffold(
       appBar: AppBar(
         title: const Text('Ticket'),
         actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded), tooltip: 'Refresh'),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded), tooltip: 'Rafraîchir'),
         ],
       ),
       body: _loading
@@ -155,18 +155,18 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
             children: [
               SummaryCard(
-                title: 'User information',
+                title: 'Informations utilisateur',
                 trailing: StatusPill(status: ticket.status, compact: true),
                 children: [
-                  InfoRow(label: 'User', value: ticket.userDisplayName ?? ticket.userEmail ?? 'Unknown'),
-                  InfoRow(label: 'Email', value: ticket.userEmail ?? 'Not available'),
-                  InfoRow(label: 'Ticket ID', value: ticket.ticketCode),
-                  InfoRow(label: 'Profile Link', value: ticket.tangoProfileLink),
+                  InfoRow(label: 'Utilisateur', value: ticket.userDisplayName ?? ticket.userEmail ?? 'Inconnu'),
+                  InfoRow(label: 'Email', value: ticket.userEmail ?? 'Non disponible'),
+                  InfoRow(label: 'Numéro du ticket', value: ticket.ticketCode),
+                  InfoRow(label: 'Lien du profil Tango', value: ticket.tangoProfileLink),
                   InfoRow(label: ticket.registerType.label, value: ticket.registerValue),
-                  InfoRow(label: 'Created', value: formatDate(ticket.createdAt)),
+                  InfoRow(label: 'Créé le', value: formatDate(ticket.createdAt)),
                   InfoRow(
-                    label: 'Last Reply',
-                    value: ticket.lastReplyAt == null ? 'None' : formatDateTime(ticket.lastReplyAt!),
+                    label: 'Dernière réponse',
+                    value: ticket.lastReplyAt == null ? 'Aucun' : formatDateTime(ticket.lastReplyAt!),
                   ),
                 ],
               ),
@@ -201,7 +201,7 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
               ),
               const SizedBox(height: 16),
               SummaryCard(
-                title: 'Change status',
+                title: 'Changer le statut',
                 children: [
                   const SizedBox(height: 6),
                   Wrap(
@@ -229,7 +229,7 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
                   child: EmptyState(
                     icon: Icons.forum_outlined,
                     title: 'No messages',
-                    message: 'This ticket has no conversation yet.',
+                    message: 'Ce ticket n’a pas encore de conversation.',
                   ),
                 )
               else
@@ -285,7 +285,7 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
                     maxLines: 4,
                     enabled: !_sending,
                     decoration: const InputDecoration(
-                      hintText: 'Reply to the user...',
+                      hintText: 'Répondre à l’utilisateur…',
                       contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     ),
                   ),
@@ -297,7 +297,7 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
                       ? const SizedBox(
                           height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2))
                       : const Icon(Icons.send_rounded),
-                  tooltip: 'Send reply',
+                  tooltip: 'Envoyer la réponse',
                 ),
               ],
             ),

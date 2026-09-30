@@ -121,7 +121,7 @@ Widget _host({
       ChangeNotifierProvider<NotificationsController>(
           create: (_) => NotificationsController(kycService)),
     ],
-    child: MaterialApp(home: RootGate(realtime: realtime, linkStream: const Stream.empty())),
+    child: MaterialApp(home: RootGate(realtime: realtime, linkStream: const Stream.empty(), splashMinimum: Duration.zero)),
   );
 }
 

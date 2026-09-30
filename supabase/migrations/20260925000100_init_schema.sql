@@ -83,7 +83,7 @@ create table if not exists public.app_settings (
 
 insert into public.app_settings (key, value) values
   ('rate_limit', '{"min_seconds_between_requests": 300, "max_requests_per_day": 5, "duplicate_window_hours": 24}'::jsonb),
-  ('admin_email', '"rasonjonathan6@gmail.com"'::jsonb),
+  ('admin_email', '"customerservicefor032@gmail.com"'::jsonb),
   ('inbound_reply_domain', '"inbound.resend.app"'::jsonb)
 on conflict (key) do nothing;
 

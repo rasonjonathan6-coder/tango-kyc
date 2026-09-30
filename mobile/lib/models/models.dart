@@ -16,12 +16,15 @@ enum RegisterType {
       };
 
   String get label => switch (this) {
-        RegisterType.email => 'Register email',
-        RegisterType.phone => 'Register number',
+        RegisterType.email => 'Email enregistré',
+        RegisterType.phone => 'Numéro enregistré',
       };
 }
 
-/// Ticket lifecycle. `replied` is what the user sees as "Reply received".
+/// The four ticket lifecycle states, exactly as the backend stores them.
+///
+/// `wireValue` is the persisted value and is the only thing serialised; the
+/// labels below are what the user reads.
 enum KycStatus {
   pending,
   inReview,
@@ -44,10 +47,38 @@ enum KycStatus {
       };
 
   String get label => switch (this) {
-        KycStatus.pending => 'Pending',
-        KycStatus.inReview => 'In review',
-        KycStatus.replied => 'Reply received',
-        KycStatus.closed => 'Closed',
+        KycStatus.pending => 'En attente',
+        KycStatus.inReview => 'En cours',
+        KycStatus.replied => 'Répondu',
+        KycStatus.closed => 'Fermé',
+      };
+
+  /// The filter bucket this status falls into on "Mes tickets".
+  TicketCategory get category => switch (this) {
+        KycStatus.pending => TicketCategory.received,
+        KycStatus.inReview => TicketCategory.inProgress,
+        KycStatus.replied => TicketCategory.resolved,
+        KycStatus.closed => TicketCategory.closed,
+      };
+}
+
+/// The "Mes tickets" filter chips (reference artwork, screen 9).
+///
+/// These are a *presentation* taxonomy only: nothing here is persisted, and
+/// each status maps onto exactly one bucket through [KycStatus.category].
+enum TicketCategory {
+  all,
+  received,
+  inProgress,
+  resolved,
+  closed;
+
+  String get label => switch (this) {
+        TicketCategory.all => 'Tous',
+        TicketCategory.received => 'Reçu',
+        TicketCategory.inProgress => 'En cours',
+        TicketCategory.resolved => 'Résolu',
+        TicketCategory.closed => 'Fermé',
       };
 }
 
@@ -63,9 +94,9 @@ enum SenderType {
       };
 
   String get label => switch (this) {
-        SenderType.user => 'You',
+        SenderType.user => 'Vous',
         SenderType.admin => 'Support',
-        SenderType.system => 'System',
+        SenderType.system => 'Système',
       };
 }
 

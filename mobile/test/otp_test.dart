@@ -98,7 +98,7 @@ void main() {
       expect(auth.isSignedIn, isFalse);
       expect(
         ErrorMessages.from(auth.lastError ?? ''),
-        'This code is incorrect or has expired. Request a new one.',
+        'Ce code est incorrect ou a expiré. Demandez-en un nouveau.',
       );
     });
 
@@ -120,7 +120,8 @@ void main() {
       await tester.pumpWidget(wrap(otpScreen(purpose: EmailOtpPurpose.signup), auth: auth));
       await tester.pumpAndSettle();
 
-      expect(find.text('Entrez votre code'), findsOneWidget);
+      expect(find.text('Vérifiez'), findsOneWidget);
+      expect(find.text('votre email'), findsOneWidget);
       expect(find.textContaining('$kEmailOtpLength chiffres'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
     });
@@ -157,7 +158,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(service.otpVerifyCalls, 1);
-      expect(find.text('This code is incorrect or has expired. Request a new one.'),
+      expect(find.text('Ce code est incorrect ou a expiré. Demandez-en un nouveau.'),
           findsOneWidget);
       expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, isEmpty);
     });
