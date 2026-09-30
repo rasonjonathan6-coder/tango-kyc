@@ -42,6 +42,10 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   FORBIDDEN: { message: "You are not allowed to do that.", status: 403 },
   TICKET_NOT_FOUND: { message: "Request not found.", status: 404 },
   TICKET_CLOSED: { message: "This request is closed and can no longer be replied to.", status: 409 },
+  PAYMENT_NOT_CONFIRMED: {
+    message: "Your payment must be confirmed before you can reply to this request.",
+    status: 409,
+  },
   MESSAGE_REQUIRED: { message: "Please write a message.", status: 422 },
   // --- MVola ---------------------------------------------------------------
   PAYMENT_NOT_FOUND: { message: "Payment not found.", status: 404 },
@@ -107,6 +111,7 @@ export function translateDbError(error: { message?: string; code?: string } | nu
     "FORBIDDEN",
     "TICKET_NOT_FOUND",
     "TICKET_CLOSED",
+    "PAYMENT_NOT_CONFIRMED",
     "MESSAGE_REQUIRED",
     // MVola. Longest first is handled by the loop order below; these are all
     // distinct prefixes so no code shadows another.

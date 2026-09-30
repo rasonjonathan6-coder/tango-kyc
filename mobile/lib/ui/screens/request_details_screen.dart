@@ -1,11 +1,17 @@
-/// Ticket detail: request metadata, status history and the messages sent by the
-/// administration.
+/// Ticket detail: request metadata, status history and the user's conversation
+/// with the administration.
 ///
-/// There is deliberately **no reply box**: the flow is ADMIN -> USER only. The
-/// user can read messages but cannot post one, and the backend rejects any
-/// attempt regardless of the UI. Messages are rendered as plain text; the
-/// backend strips email headers, quoted history and signatures before storing a
-/// reply, and the body is never interpreted as markup.
+/// The user owns a ticket and may reply on it through the composer. The rule is
+/// enforced server-side by `public.user_post_message`: a ticket that is closed,
+/// or one whose MVola payment is still required and not yet confirmed
+/// (`paymentRequired && !isSubmitted`), cannot be answered. The screen mirrors
+/// that state — the composer is replaced by an explanation — and a
+/// `PAYMENT_NOT_CONFIRMED` answer reloads the ticket so a payment confirmed
+/// elsewhere flips it back to writable.
+///
+/// Messages are rendered as plain text; the backend strips email headers,
+/// quoted history and signatures before storing a reply, and the body is never
+/// interpreted as markup.
 library;
 
 import 'dart:async';
@@ -45,6 +51,21 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   final FocusNode _replyFocus = FocusNode();
   bool _sending = false;
 
+  /// The synthetic welcome ticket is a read-only system message: it never gets
+  /// a composer and never needs a payment.
+  bool _isWelcome(KycRequest request) => request.registerValue == 'WELCOME';
+
+  /// Whether the request still owes an unconfirmed MVola payment. While this
+  /// holds the composer is replaced by an explanation, mirroring the server's
+  /// `PAYMENT_NOT_CONFIRMED` guard in `user_post_message`.
+  bool get _paymentBlocked {
+    final request = _request;
+    return request != null &&
+        !_isWelcome(request) &&
+        request.paymentRequired &&
+        !request.isSubmitted;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +75,8 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _replyController.dispose();
+    _replyFocus.dispose();
     super.dispose();
   }
 
@@ -62,7 +85,9 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   /// Guarded against a double tap: [_sending] short-circuits a second call while
   /// the first is in flight, and the field is cleared only on success so a
   /// network failure never loses what the user typed. A `TICKET_CLOSED` answer
-  /// flips the screen to read-only instead of leaving the composer enabled.
+  /// flips the screen to read-only instead of leaving the composer enabled; a
+  /// `PAYMENT_NOT_CONFIRMED` answer reloads the ticket so a payment confirmed in
+  /// the meantime makes the composer available again.
   Future<void> _send() async {
     if (_sending) return;
     final body = _replyController.text.trim();
@@ -80,7 +105,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
       final code = context.read<KycController>().replyErrorCode ?? 'INTERNAL';
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(ErrorMessages.from(code))));
-      if (code == 'TICKET_CLOSED') await _load();
+      if (code == 'TICKET_CLOSED' || code == 'PAYMENT_NOT_CONFIRMED') await _load();
       return;
     }
 
@@ -140,7 +165,20 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? ErrorState(message: ErrorMessages.from(_error!), onRetry: _load)
-              : _content(),
+              : _body(),
+    );
+  }
+
+  /// The scrollable ticket with its pinned footer (composer or explanation).
+  Widget _body() {
+    final request = _request!;
+    final footer = _footer(request);
+    if (footer == null) return _content();
+    return Column(
+      children: [
+        Expanded(child: _content()),
+        footer,
+      ],
     );
   }
 
@@ -248,11 +286,179 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
     );
   }
 
+  /// The composer, pinned below the scrollable ticket so it is always reachable.
+  ///
+  /// The welcome ticket is a read-only system message and gets no footer. For a
+  /// real ticket the footer is the composer when the server would accept a
+  /// reply, or an explanation when it would not — the request still owes an
+  /// unconfirmed payment, or the ticket is closed.
+  Widget? _footer(KycRequest request) {
+    if (_isWelcome(request)) return null;
+
+    final Widget body;
+    if (_paymentBlocked) {
+      body = _PaymentBlockedNotice(
+        onPay: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MvolaPaymentScreen(
+              ticketId: request.id,
+              ticketCode: request.ticketCode,
+            ),
+          ),
+        ),
+      );
+    } else if (request.status == KycStatus.closed) {
+      body = const _ReadOnlyNotice(
+        icon: Icons.lock_outline_rounded,
+        message: 'Cette demande est fermée : vous ne pouvez plus y répondre.',
+      );
+    } else {
+      body = _composer();
+    }
+
+    final theme = Theme.of(context);
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6)),
+          ),
+        ),
+        child: body,
+      ),
+    );
+  }
+
+  /// The reply composer, shown only when the server would accept a reply: the
+  /// ticket is open and any required payment is confirmed.
+  Widget _composer() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _replyController,
+            focusNode: _replyFocus,
+            minLines: 1,
+            maxLines: 4,
+            enabled: !_sending,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _send(),
+            decoration: const InputDecoration(
+              hintText: 'Écrire un message…',
+              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        IconButton.filled(
+          onPressed: _sending ? null : _send,
+          icon: _sending
+              ? const SizedBox(
+                  height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2))
+              : const Icon(Icons.send_rounded),
+          tooltip: 'Envoyer',
+        ),
+      ],
+    );
+  }
+
   String _actorLabel(String role) => switch (role) {
         'admin' => 'Administration',
         'user' => 'Vous',
         _ => 'Système',
       };
+}
+
+/// Shown in place of the composer while the request still owes an unconfirmed
+/// MVola payment. It states the rule plainly and offers the payment action, so
+/// the user understands the reply is blocked until the payment is confirmed.
+class _PaymentBlockedNotice extends StatelessWidget {
+  const _PaymentBlockedNotice({required this.onPay});
+
+  final VoidCallback onPay;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lock_clock_rounded, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Réponse bloquée',
+                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Votre paiement MVola doit être confirmé avant de pouvoir répondre à cette demande.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onPay,
+              icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),
+              label: const Text('Payer avec MVola'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A plain read-only explanation shown in place of the composer when the ticket
+/// cannot be answered for a non-payment reason (e.g. it is closed).
+class _ReadOnlyNotice extends StatelessWidget {
+  const _ReadOnlyNotice({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _MessageBubble extends StatelessWidget {

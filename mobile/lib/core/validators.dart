@@ -130,6 +130,8 @@ class ErrorMessages {
       'FORBIDDEN': 'Vous n’êtes pas autorisé à effectuer cette action.',
       'TICKET_NOT_FOUND': 'Demande introuvable.',
       'TICKET_CLOSED': 'Cette demande est fermée : vous ne pouvez plus y répondre.',
+      'PAYMENT_NOT_CONFIRMED':
+          'Votre paiement MVola doit être confirmé avant de pouvoir répondre à cette demande.',
       'AUTH_REQUIRED': 'Connectez-vous puis réessayez.',
       'INVALID_TOKEN': 'Votre session a expiré. Reconnectez-vous.',
       'MESSAGE_REQUIRED': 'Écrivez un message.',

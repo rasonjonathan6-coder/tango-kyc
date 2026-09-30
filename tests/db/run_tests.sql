@@ -512,6 +512,15 @@ begin
   v_b_open := test_harness.new_ticket(v_b, 'https://tango.me/reply-b', 'reply.b@example.com', 'email');
   v_closed := test_harness.new_ticket(v_a, 'https://tango.me/reply-closed', 'reply.closed@example.com', 'email');
 
+  -- This section pins the reply contract (ownership, closed status, anon, the
+  -- 20 000-char cap and the per-minute limit), not the payment gate. MVola is
+  -- on, so the creation trigger flags every fresh ticket payment-required;
+  -- clear the flag on the two open tickets so the reply branches this section is
+  -- about stay reachable. The payment gate itself is pinned in section 23.
+  update public.kyc_requests
+     set payment_required = false
+   where id in (v_open.id, v_b_open.id);
+
   perform test_harness.act_as(v_admin);
   perform public.admin_set_status(v_closed.id, 'closed');
 
@@ -1525,6 +1534,114 @@ begin
   perform test_harness.ok(
     (select count(*) from public.messages where ticket_id = v_t.id) >= 0,
     '22b: the closed ticket history stays readable by its owner');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 23. The reply path is gated on the payment: the owner of a payment-required
+-- request whose payment has not been approved by an admin cannot reply.
+--
+-- Business rule (server side, never trusted from the client):
+--   * `payment_required` false                    -> the owner replies freely;
+--   * `payment_required` true + payment approved   -> the owner replies;
+--   * `payment_required` true + not approved       -> PAYMENT_NOT_CONFIRMED;
+--   * a closed ticket                             -> TICKET_CLOSED.
+--
+-- "Officially submitted" is derived, never stored. `is_submitted` is true when
+-- payments are off OR an approved `mvola_payments` row exists - exactly what
+-- `kyc_submission_state` returns and what the gate reads. It therefore means
+-- "the admin confirmed the payment", not merely "the user submitted a
+-- reference": a started or submitted-but-unreviewed payment leaves it false.
+-- `admin_post_message` is deliberately not gated; the payment rule applies to
+-- the request owner only.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_user_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_admin uuid := '33333333-3333-3333-3333-333333333333';
+  v_gated public.kyc_requests;
+  v_ok public.kyc_requests;
+  v_closed public.kyc_requests;
+  v_pay public.mvola_payments;
+  v_row public.messages;
+  v_before int;
+begin
+  -- Test 1 - payment required, not confirmed: the reply is refused and nothing
+  -- is stored.
+  perform test_harness.act_as_service();
+  v_gated := test_harness.new_ticket(v_user_a, 'https://tango.me/gate/blocked',
+    'gate.blocked@example.com', 'email', true);
+  perform test_harness.ok(
+    (select payment_required from public.kyc_requests where id = v_gated.id),
+    '23: the request is payment-required');
+  perform test_harness.act_as(v_user_a);
+  v_before := (select count(*) from public.messages where ticket_id = v_gated.id);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_gated.id::text, 'while unpaid'),
+    'PAYMENT_NOT_CONFIRMED', '23: the owner cannot reply before the payment is confirmed');
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.messages where ticket_id = v_gated.id) = v_before,
+    '23: a payment-blocked reply stores no message');
+
+  -- Opening a payment is not a confirmation: the gate stays shut.
+  perform test_harness.act_as(v_user_a);
+  v_pay := public.mvola_start_payment(v_gated.id);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_gated.id::text, 'still unpaid'),
+    'PAYMENT_NOT_CONFIRMED', '23: starting a payment does not unlock the reply');
+
+  -- Nor is the user's own submission: an awaiting-review payment is not approved.
+  perform public.mvola_submit_payment(v_pay.id, 'REF-GATE-23', null);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_gated.id::text, 'awaiting review'),
+    'PAYMENT_NOT_CONFIRMED', '23: a submitted payment awaiting review does not unlock the reply');
+
+  -- Test 2 - payment required, confirmed by an admin: the reply succeeds and the
+  -- message is stored on the ticket.
+  perform test_harness.act_as(v_admin);
+  perform public.admin_mvola_set_decision(v_pay.id, 'approved', null);
+  perform test_harness.act_as(v_user_a);
+  v_row := public.user_post_message(v_gated.id, 'Payment confirmed, here are my documents.');
+  perform test_harness.ok(v_row.id is not null,
+    '23: the owner can reply once the admin confirmed the payment');
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.messages
+      where id = v_row.id and ticket_id = v_gated.id and sender_type = 'user') = 1,
+    '23: the confirmed reply is stored as a user message on the ticket');
+
+  -- Test 3 - payment not required: the reply succeeds, as before.
+  perform test_harness.act_as_service();
+  v_ok := test_harness.new_ticket(v_user_a, 'https://tango.me/gate/free',
+    'gate.free@example.com', 'email', false);
+  update public.kyc_requests set payment_required = false where id = v_ok.id;
+  perform test_harness.act_as(v_user_a);
+  v_row := public.user_post_message(v_ok.id, 'No payment needed here.');
+  perform test_harness.ok(v_row.id is not null,
+    '23: the owner can reply when no payment is required');
+
+  -- Test 4 - a closed ticket is refused; the closed rule is evaluated before the
+  -- payment rule.
+  perform test_harness.act_as_service();
+  v_closed := test_harness.new_ticket(v_user_a, 'https://tango.me/gate/closed',
+    'gate.closed@example.com', 'email', true);
+  perform test_harness.act_as(v_admin);
+  perform public.admin_set_status(v_closed.id, 'closed');
+  perform test_harness.act_as(v_user_a);
+  perform test_harness.raises(
+    format('select public.user_post_message(%L, %L)', v_closed.id::text, 'on a closed ticket'),
+    'TICKET_CLOSED', '23: the owner cannot reply on a closed ticket');
+
+  -- Test 5 - an admin is not subject to the payment gate.
+  perform test_harness.act_as(v_admin);
+  v_row := public.admin_post_message(v_gated.id, 'Admin follow-up, no payment gate here.');
+  perform test_harness.ok(v_row.id is not null,
+    '23: an admin can post even while a payment is pending');
+  perform test_harness.act_as_service();
+  perform test_harness.ok(
+    (select count(*) from public.messages
+      where ticket_id = v_gated.id and sender_type = 'admin') >= 1,
+    '23: the admin message is stored');
 end $$;
 
 rollback;
