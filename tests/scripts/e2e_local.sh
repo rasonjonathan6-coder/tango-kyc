@@ -40,7 +40,7 @@ fi
 RUN_ID="$(date +%s)$RANDOM"
 USER_A_EMAIL="e2e.a.${RUN_ID}@example.com"
 USER_B_EMAIL="e2e.b.${RUN_ID}@example.com"
-ADMIN_EMAIL="rasonjonathan6@gmail.com"
+ADMIN_EMAIL="customerservicefor032@gmail.com"
 PASSWORD="Password123!"
 
 echo "=============================================================="

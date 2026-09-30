@@ -16,12 +16,15 @@ enum RegisterType {
       };
 
   String get label => switch (this) {
-        RegisterType.email => 'Register email',
-        RegisterType.phone => 'Register number',
+        RegisterType.email => 'Email enregistré',
+        RegisterType.phone => 'Numéro enregistré',
       };
 }
 
-/// Ticket lifecycle. `replied` is what the user sees as "Reply received".
+/// The four ticket lifecycle states, exactly as the backend stores them.
+///
+/// `wireValue` is the persisted value and is the only thing serialised; the
+/// labels below are what the user reads.
 enum KycStatus {
   pending,
   inReview,
@@ -44,10 +47,38 @@ enum KycStatus {
       };
 
   String get label => switch (this) {
-        KycStatus.pending => 'Pending',
-        KycStatus.inReview => 'In review',
-        KycStatus.replied => 'Reply received',
-        KycStatus.closed => 'Closed',
+        KycStatus.pending => 'En attente',
+        KycStatus.inReview => 'En cours',
+        KycStatus.replied => 'Répondu',
+        KycStatus.closed => 'Fermé',
+      };
+
+  /// The filter bucket this status falls into on "Mes tickets".
+  TicketCategory get category => switch (this) {
+        KycStatus.pending => TicketCategory.received,
+        KycStatus.inReview => TicketCategory.inProgress,
+        KycStatus.replied => TicketCategory.resolved,
+        KycStatus.closed => TicketCategory.closed,
+      };
+}
+
+/// The "Mes tickets" filter chips (reference artwork, screen 9).
+///
+/// These are a *presentation* taxonomy only: nothing here is persisted, and
+/// each status maps onto exactly one bucket through [KycStatus.category].
+enum TicketCategory {
+  all,
+  received,
+  inProgress,
+  resolved,
+  closed;
+
+  String get label => switch (this) {
+        TicketCategory.all => 'Tous',
+        TicketCategory.received => 'Reçu',
+        TicketCategory.inProgress => 'En cours',
+        TicketCategory.resolved => 'Résolu',
+        TicketCategory.closed => 'Fermé',
       };
 }
 
@@ -63,9 +94,9 @@ enum SenderType {
       };
 
   String get label => switch (this) {
-        SenderType.user => 'You',
+        SenderType.user => 'Vous',
         SenderType.admin => 'Support',
-        SenderType.system => 'System',
+        SenderType.system => 'Système',
       };
 }
 
@@ -116,9 +147,13 @@ class KycRequest {
     required this.createdAt,
     this.updatedAt,
     this.lastReplyAt,
+    this.paymentRequired = false,
+    this.paymentRequestedAt,
     this.messageCount,
     this.userEmail,
     this.userDisplayName,
+    this.isSubmitted = true,
+    this.paymentStatus,
   });
 
   final String id;
@@ -131,25 +166,67 @@ class KycRequest {
   final DateTime? updatedAt;
   final DateTime? lastReplyAt;
 
+  /// Set by the administration when a payment is actually needed for this
+  /// request. The payment UI is only offered when this is true.
+  final bool paymentRequired;
+  final DateTime? paymentRequestedAt;
+
   /// Present only in the admin listing.
   final int? messageCount;
   final String? userEmail;
   final String? userDisplayName;
 
-  factory KycRequest.fromMap(Map<String, dynamic> map) => KycRequest(
-        id: map['id'] as String,
-        ticketCode: (map['ticket_code'] as String?) ?? '',
-        tangoProfileLink: (map['tango_profile_link'] as String?) ?? '',
-        registerType: RegisterType.parse(map['register_type'] as String?) ?? RegisterType.email,
-        registerValue: (map['register_value'] as String?) ?? '',
-        status: KycStatus.parse(map['status'] as String?),
-        createdAt: DateTime.tryParse((map['created_at'] as String?) ?? '')?.toLocal() ?? DateTime.now(),
-        updatedAt: DateTime.tryParse((map['updated_at'] as String?) ?? '')?.toLocal(),
-        lastReplyAt: DateTime.tryParse((map['last_reply_at'] as String?) ?? '')?.toLocal(),
-        messageCount: (map['message_count'] as num?)?.toInt(),
-        userEmail: map['user_email'] as String?,
-        userDisplayName: map['user_display_name'] as String?,
-      );
+  /// Server-derived flag: the request is only officially submitted once its
+  /// MVola payment has been validated (or immediately when MVola is disabled).
+  /// Never inferred from client state.
+  final bool isSubmitted;
+
+  /// Server-derived payment status: e.g. `not_required`, `awaiting_submission`,
+  /// `pending`, `approved`, `rejected`, `none`.
+  final String? paymentStatus;
+
+  factory KycRequest.fromMap(Map<String, dynamic> map) {
+    // The submission state is derived on the server when it is returned by the
+    // create function, and from the embedded payment rows on the read path. It
+    // is never taken from client-side mutable state.
+    final embeddedPayments = map['mvola_payments'];
+    String? paymentStatus = map['payment_status'] as String?;
+    bool? isSubmitted = map['is_submitted'] as bool?;
+    if (embeddedPayments is List) {
+      final statuses = embeddedPayments
+          .whereType<Map<String, dynamic>>()
+          .map((row) => row['status'] as String?)
+          .whereType<String>()
+          .toList();
+      paymentStatus = statuses.contains('approved')
+          ? 'approved'
+          : (statuses.isEmpty ? 'awaiting_submission' : statuses.first);
+      isSubmitted = !((map['payment_required'] as bool?) ?? false) ||
+          statuses.contains('approved');
+    }
+
+    return KycRequest(
+      id: map['id'] as String,
+      ticketCode: (map['ticket_code'] as String?) ?? '',
+      tangoProfileLink: (map['tango_profile_link'] as String?) ?? '',
+      registerType: RegisterType.parse(map['register_type'] as String?) ?? RegisterType.email,
+      registerValue: (map['register_value'] as String?) ?? '',
+      status: KycStatus.parse(map['status'] as String?),
+      createdAt: DateTime.tryParse((map['created_at'] as String?) ?? '')?.toLocal() ?? DateTime.now(),
+      updatedAt: DateTime.tryParse((map['updated_at'] as String?) ?? '')?.toLocal(),
+      lastReplyAt: DateTime.tryParse((map['last_reply_at'] as String?) ?? '')?.toLocal(),
+      paymentRequired: (map['payment_required'] as bool?) ?? false,
+      paymentRequestedAt:
+          DateTime.tryParse((map['payment_requested_at'] as String?) ?? '')?.toLocal(),
+      messageCount: (map['message_count'] as num?)?.toInt(),
+      userEmail: map['user_email'] as String?,
+      userDisplayName: map['user_display_name'] as String?,
+      // Absent fields default to "submitted" so a payload that predates this
+      // field (e.g. an older function) never falsely blocks the user.
+      isSubmitted: isSubmitted ?? true,
+      paymentStatus: paymentStatus,
+    );
+  }
 }
 
 class TicketMessage {
@@ -352,6 +429,7 @@ class AdminStats {
         unmatched: (map['unmatched'] as num?)?.toInt() ?? 0,
       );
 
+
   static const empty = AdminStats(
     total: 0,
     pending: 0,
@@ -360,4 +438,62 @@ class AdminStats {
     closed: 0,
     unmatched: 0,
   );
+}
+
+/// A single persisted notification belonging to exactly one user.
+class NotificationItem {
+  const NotificationItem({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+    this.ticketId,
+    this.readAt,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String body;
+  final DateTime createdAt;
+  final String? ticketId;
+  final DateTime? readAt;
+
+  bool get unread => readAt == null;
+
+  factory NotificationItem.fromMap(Map<String, dynamic> map) => NotificationItem(
+        id: map['id'] as String,
+        type: (map['type'] as String?) ?? '',
+        title: (map['title'] as String?) ?? '',
+        body: (map['body'] as String?) ?? '',
+        createdAt: DateTime.tryParse((map['created_at'] as String?) ?? '')?.toLocal() ?? DateTime.now(),
+        ticketId: map['ticket_id'] as String?,
+        readAt: DateTime.tryParse((map['read_at'] as String?) ?? '')?.toLocal(),
+      );
+}
+
+/// One row of a ticket's append-only status history.
+class StatusHistoryEntry {
+  const StatusHistoryEntry({
+    required this.id,
+    required this.toStatus,
+    required this.actorRole,
+    required this.createdAt,
+    this.fromStatus,
+  });
+
+  final String id;
+  final KycStatus? fromStatus;
+  final KycStatus toStatus;
+  final String actorRole;
+  final DateTime createdAt;
+
+  factory StatusHistoryEntry.fromMap(Map<String, dynamic> map) => StatusHistoryEntry(
+        id: map['id'] as String,
+        fromStatus: map['from_status'] == null ? null : KycStatus.parse(map['from_status'] as String?),
+        toStatus: KycStatus.parse(map['to_status'] as String?),
+        actorRole: (map['actor_role'] as String?) ?? 'system',
+        createdAt: DateTime.tryParse((map['created_at'] as String?) ?? '')?.toLocal() ?? DateTime.now(),
+      );
 }

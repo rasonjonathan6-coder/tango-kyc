@@ -109,13 +109,36 @@ void main() {
     });
   });
 
-  group('reply handling', () {
-    test('forwards the reply to the service', () async {
-      final service = FakeKycService(requests: [_ticket()]);
+  group('status history', () {
+    test('forwards the ticket id to the service and returns its rows', () async {
+      final service = FakeKycService(
+        requests: [_ticket()],
+        statusHistoryEntries: [
+          StatusHistoryEntry(
+            id: 'h1',
+            toStatus: KycStatus.inReview,
+            actorRole: 'admin',
+            createdAt: DateTime(2026, 9, 25, 9),
+          ),
+        ],
+      );
       final controller = KycController(service);
 
-      await controller.sendReply('11111111-1111-1111-1111-111111111111', 'Any update?');
-      expect(service.replyCalls, 1);
+      final history = await controller.statusHistory('11111111-1111-1111-1111-111111111111');
+      expect(service.statusHistoryCalls, 1);
+      expect(history, hasLength(1));
+      expect(history.first.actorRole, 'admin');
+      expect(history.first.toStatus, KycStatus.inReview);
+    });
+
+    test('the controller exposes no user reply path', () {
+      // The admin -> user flow is one-way: the reply API was removed from the
+      // controller entirely, and the backend RPC is revoked.
+      final controller = KycController(FakeKycService());
+      expect(
+        () => (controller as dynamic).sendReply,
+        throwsNoSuchMethodError,
+      );
     });
   });
 

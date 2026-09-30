@@ -41,6 +41,7 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   RATE_LIMITED_DAILY: { message: "You have reached the maximum number of requests for today.", status: 429 },
   FORBIDDEN: { message: "You are not allowed to do that.", status: 403 },
   TICKET_NOT_FOUND: { message: "Request not found.", status: 404 },
+  TICKET_CLOSED: { message: "This request is closed and can no longer be replied to.", status: 409 },
   MESSAGE_REQUIRED: { message: "Please write a message.", status: 422 },
   // --- MVola ---------------------------------------------------------------
   PAYMENT_NOT_FOUND: { message: "Payment not found.", status: 404 },
@@ -48,6 +49,7 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   MVOLA_NOT_CONFIGURED: { message: "Mobile Money payment is not available right now.", status: 503 },
   MVOLA_DISABLED: { message: "Mobile Money payment is not available right now.", status: 503 },
   MVOLA_UNAVAILABLE: { message: "Mobile Money payment is not available right now.", status: 503 },
+  MVOLA_NOT_REQUIRED: { message: "No payment is required for this request.", status: 409 },
   MVOLA_REFERENCE_REQUIRED: { message: "Please enter your MVola transaction reference.", status: 422 },
   MVOLA_REFERENCE_INVALID: { message: "This transaction reference is not valid.", status: 422 },
   MVOLA_PAYER_INVALID: { message: "Please enter a valid phone number.", status: 422 },
@@ -104,6 +106,7 @@ export function translateDbError(error: { message?: string; code?: string } | nu
     "RATE_LIMITED",
     "FORBIDDEN",
     "TICKET_NOT_FOUND",
+    "TICKET_CLOSED",
     "MESSAGE_REQUIRED",
     // MVola. Longest first is handled by the loop order below; these are all
     // distinct prefixes so no code shadows another.
@@ -118,6 +121,7 @@ export function translateDbError(error: { message?: string; code?: string } | nu
     "MVOLA_NOT_CONFIGURED",
     "MVOLA_UNAVAILABLE",
     "MVOLA_DISABLED",
+    "MVOLA_NOT_REQUIRED",
   ];
   for (const code of known) {
     if (raw.includes(code)) {

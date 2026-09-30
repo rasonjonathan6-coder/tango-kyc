@@ -55,9 +55,10 @@ update public.app_settings
 ```
 
 The anti-spam limits are the live values here. Note that the `admin_email` row is
-**not** read by the functions: the support address comes from the `ADMIN_EMAIL`
-environment variable (an Edge Function secret). Change it with
-`supabase secrets set ADMIN_EMAIL=...`, not with SQL.
+**not** read by the functions: the administration identity comes from the
+`ADMIN_EMAIL` environment variable and the société/support KYC mailbox from
+`KYC_SUPPORT_EMAIL` (both Edge Function secrets). Change them with
+`supabase secrets set ADMIN_EMAIL=... KYC_SUPPORT_EMAIL=...`, not with SQL.
 
 Anti-spam has two independent limits, both stored in the `rate_limit` row of
 `public.app_settings` (not in environment variables): a cooldown between distinct
@@ -84,6 +85,53 @@ Dashboard → **Authentication → URL Configuration**:
 
 The password-reset email deep-links back into the app through the same scheme.
 
+### Current live configuration of this project
+
+Read from the project via the Management API (`GET /v1/projects/{ref}/config/auth`).
+These values matter because the app is coded against them.
+
+| Setting | Value | Why it matters |
+|---|---|---|
+| `mailer_autoconfirm` | `false` | Sign-up returns no session until the address is confirmed, so the app must handle the confirmation step. |
+| `mailer_otp_length` | `8` | The code is **eight** digits, not the six-digit default. `kEmailOtpLength` in `otp_screen.dart` must match. |
+| `mailer_otp_exp` | `3600` | Codes live one hour. |
+| `external_email_enabled` | `true` | Email/password and email codes are available. |
+| `external_google_enabled` | `false` | Google sign-in is **not** usable until the provider is enabled and given credentials. |
+| `rate_limit_email_sent` | `30`/hour | 30 auth emails per hour per address. Note the app-side resend guard is 60s, so the server is the looser of the two. |
+| `uri_allow_list` | `com.tango.kyc.verification://login-callback` | The only redirect back into the app. |
+| `smtp_admin_email` | unset | Auth mail uses Supabase's shared sender, which is rate-limited and not for production. |
+
+### Email codes (OTP)
+
+The app supports signing in with an emailed code, on top of the password flow.
+The code is sent by Supabase Auth, not by the KYC email pipeline, so this does
+not touch Resend, Mailjet or the webhook.
+
+For the code to arrive, the **Magic Link** email template must contain the token.
+Supabase renders the same `/otp` endpoint for every code request, so it uses the
+magic-link template rather than the recovery template.
+
+The ready-to-paste body is versioned at
+[`supabase/templates/magic_link.html`](../supabase/templates/magic_link.html),
+and wired up for the local stack in `supabase/config.toml` under
+`[auth.email.template.magic_link]`. `config.toml` does **not** configure the
+hosted project: paste the same HTML into
+**Authentication → Email Templates → Magic Link** on the cloud project, and make
+sure the body includes:
+
+```html
+{{ .Token }}
+```
+
+Without `{{ .Token }}` the email is sent but contains only a link, and the code
+entry screen cannot succeed. The live template currently lacks it. The markup,
+its design constraints and the optional logo setup are documented in
+[`EMAIL_SETUP.md`](EMAIL_SETUP.md#11-the-verification-code-template).
+
+Supabase's built-in SMTP is intended for testing and is heavily rate-limited; for
+real use configure a custom SMTP provider under **Authentication → SMTP Settings**
+and set `smtp_admin_email`.
+
 ## 6. Make yourself an admin
 
 The role is derived from `raw_app_meta_data`, which only the service role can
@@ -92,10 +140,10 @@ write. Promote an account with:
 ```sql
 update auth.users
    set raw_app_meta_data = raw_app_meta_data || '{"role":"admin"}'::jsonb
- where email = 'rasonjonathan6@gmail.com';
+ where email = 'customerservicefor032@gmail.com';
 
 update public.profiles set role = 'admin'
- where id = (select id from auth.users where email = 'rasonjonathan6@gmail.com');
+ where id = (select id from auth.users where email = 'customerservicefor032@gmail.com');
 ```
 
 Then sign out and back in so the new token carries the claim. Role checks run in

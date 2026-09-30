@@ -110,22 +110,25 @@ void main() {
   group('error messages', () {
     test('maps every documented server error code to friendly copy', () {
       expect(ErrorMessages.from('PROFILE_LINK_INVALID'), contains('https://'));
-      expect(ErrorMessages.from('RATE_LIMITED'), contains('wait'));
+      expect(ErrorMessages.from('RATE_LIMITED'), contains('Patientez'));
       expect(ErrorMessages.from('RATE_LIMITED_DAILY'), contains('maximum'));
-      expect(ErrorMessages.from('FORBIDDEN'), contains('not allowed'));
-      expect(ErrorMessages.from('AUTH_REQUIRED'), contains('sign in'));
+      expect(ErrorMessages.from('FORBIDDEN'), contains('autorisé'));
+      expect(ErrorMessages.from('AUTH_REQUIRED'), contains('Connectez-vous'));
     });
 
     test('maps Supabase auth messages to the required wording', () {
-      expect(ErrorMessages.from('User already registered'), 'Email already registered.');
+      expect(ErrorMessages.from('User already registered'), 'Email déjà enregistré.');
       expect(
         ErrorMessages.from('AuthApiException: Invalid login credentials'),
-        'Incorrect password.',
+        'Mot de passe incorrect.',
       );
-      expect(ErrorMessages.from('Unable to validate email address: invalid format'), 'Invalid email.');
+      expect(
+        ErrorMessages.from('Unable to validate email address: invalid format'),
+        'Email invalide.',
+      );
       expect(
         ErrorMessages.from('Password should be at least 6 characters'),
-        'Password is too short.',
+        'Mot de passe trop court.',
       );
     });
 
@@ -133,7 +136,7 @@ void main() {
       final message = ErrorMessages.from(
         'PostgrestException(code: 42501, message: FORBIDDEN, details: internal)',
       );
-      expect(message, 'You are not allowed to do that.');
+      expect(message, 'Vous n’êtes pas autorisé à effectuer cette action.');
       expect(message.toLowerCase(), isNot(contains('postgrest')));
       expect(message, isNot(contains('42501')));
     });
@@ -141,7 +144,7 @@ void main() {
     test('falls back to a generic message for unknown failures', () {
       expect(
         ErrorMessages.from('SomeUnmappedException: stack trace here'),
-        'Something went wrong. Please try again.',
+        'Une erreur est survenue. Réessayez.',
       );
     });
   });
@@ -161,18 +164,20 @@ void main() {
     });
 
     test('status labels match the requested wording', () {
-      expect(KycStatus.pending.label, 'Pending');
-      expect(KycStatus.replied.label, 'Reply received');
+      expect(KycStatus.pending.label, 'En attente');
+      expect(KycStatus.inReview.label, 'En cours');
+      expect(KycStatus.replied.label, 'Répondu');
+      expect(KycStatus.closed.label, 'Fermé');
     });
 
     test('register type labels pick the right field name', () {
-      expect(RegisterType.email.label, 'Register email');
-      expect(RegisterType.phone.label, 'Register number');
+      expect(RegisterType.email.label, 'Email enregistré');
+      expect(RegisterType.phone.label, 'Numéro enregistré');
     });
 
     test('sender type labels are human readable', () {
       expect(SenderType.parse('admin').label, 'Support');
-      expect(SenderType.parse('user').label, 'You');
+      expect(SenderType.parse('user').label, 'Vous');
     });
 
     test('KycRequest parses a full row', () {
@@ -194,14 +199,97 @@ void main() {
       expect(request.lastReplyAt, isNotNull);
     });
 
+    test('KycRequest derives the submission state from the create response', () {
+      final pending = KycRequest.fromMap({
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'awaiting_submission',
+        'is_submitted': false,
+      });
+      expect(pending.paymentRequired, isTrue);
+      expect(pending.isSubmitted, isFalse);
+      expect(pending.paymentStatus, 'awaiting_submission');
+
+      final approved = KycRequest.fromMap({
+        'id': '2',
+        'ticket_code': 'TNG-2',
+        'tango_profile_link': 'https://tango.me/u/2',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'approved',
+        'is_submitted': true,
+      });
+      expect(approved.paymentRequired, isTrue);
+      expect(approved.isSubmitted, isTrue);
+      expect(approved.paymentStatus, 'approved');
+    });
+
+    test('KycRequest derives the submission state from embedded payment rows', () {
+      Map<String, dynamic> row(List<Map<String, dynamic>> payments) => {
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'mvola_payments': payments,
+      };
+
+      final noPayment = KycRequest.fromMap(row(const []));
+      expect(noPayment.isSubmitted, isFalse);
+      expect(noPayment.paymentStatus, 'awaiting_submission');
+
+      final pendingPayment = KycRequest.fromMap(
+        row([
+          {'status': 'pending'},
+        ]),
+      );
+      expect(pendingPayment.isSubmitted, isFalse);
+      expect(pendingPayment.paymentStatus, 'pending');
+
+      final approvedPayment = KycRequest.fromMap(
+        row([
+          {'status': 'rejected'},
+          {'status': 'approved'},
+        ]),
+      );
+      expect(approvedPayment.isSubmitted, isTrue);
+      expect(approvedPayment.paymentStatus, 'approved');
+    });
+
+    test('KycRequest defaults to submitted when the server sends no state', () {
+      final request = KycRequest.fromMap({
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+      });
+      expect(request.isSubmitted, isTrue);
+      expect(request.paymentRequired, isFalse);
+    });
+
     test('Profile greeting uses the first name', () {
       expect(
         const Profile(id: 'x', displayName: 'Jonathan Raso', role: 'user').greetingName,
         'Jonathan',
       );
       expect(
-        const Profile(id: 'x', email: 'jonathan@example.com', role: 'user').greetingName,
-        'jonathan',
+        const Profile(id: 'x', email: 'amina@example.com', role: 'user').greetingName,
+        'amina',
       );
     });
 

@@ -2,6 +2,13 @@
     <!-- Required to reach Supabase Auth, PostgREST and the Edge Functions. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Android 13+ (API 33): a runtime permission the user must grant before any
+         notification - including a KYC reply push - can be shown. Requested at
+         sign-in by FirebasePushService; if refused, no token is registered. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Lets the notification channel vibrate on a KYC reply. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
     <application
         android:label="Tango KYC Verification"
         android:name="${applicationName}"
@@ -42,6 +49,20 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- FCM, background/terminated push. The OS draws these itself, so it
+             needs to be told which channel to use; without this it would fall
+             back to the low-importance "Miscellaneous" channel and ignore the
+             sound/vibration/lock-screen settings the user chose for
+             "Réponses KYC". The id must match kycReplyChannelId in
+             lib/services/notification_service.dart. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="kyc_replies" />
+        <!-- Monochrome status-bar glyph, shared by the OS and foreground paths. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_tango" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

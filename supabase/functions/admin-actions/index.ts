@@ -6,8 +6,24 @@
  * function, so a compromised client cannot bypass it.
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
-import { requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
-import { emailApiKeyConfigured, sendEmail } from "../_shared/email-provider.ts";
+import { env, requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
+import {
+  emailSendingConfigured,
+  replyToAddress,
+  sendAdminRequestNotification,
+  sendEmail,
+  sendUserRequestSubmittedEmail,
+  ticketPaymentApproved,
+  userReplyRecipient,
+} from "../_shared/email-provider.ts";
+import type { TicketForAdminNotification } from "../_shared/email-provider.ts";
+import { sendPushToUser } from "../_shared/push.ts";
+
+/// Title/body of the Android push for a reply. Identical wording to the inbound
+/// email path and the client's foreground fallback, so the user sees one message
+/// regardless of how the reply arrived. Carries no reply body or address.
+const PUSH_TITLE = "Nouvelle réponse à votre demande";
+const PUSH_BODY = "Un administrateur a répondu à votre ticket.";
 
 const STATUSES = ["pending", "in_review", "replied", "closed"] as const;
 type Status = (typeof STATUSES)[number];
@@ -81,6 +97,18 @@ Deno.serve(async (req) => {
         return jsonResponse({ ticket: data });
       }
 
+      // The explicit "a payment is now required" signal. It flips the ticket
+      // flag (which gates mvola_start_payment) and the SQL function raises the
+      // user notification, so the two can never drift apart.
+      case "request_payment": {
+        if (!payload.ticket_id) throw new AppError("TICKET_NOT_FOUND", "Missing ticket_id", 422);
+        const { data, error } = await asAdmin.rpc("admin_request_payment", {
+          p_ticket_id: payload.ticket_id,
+        });
+        if (error) throw translateDbError(error);
+        return jsonResponse({ ticket: data });
+      }
+
       case "post_message": {
         if (!payload.ticket_id) throw new AppError("TICKET_NOT_FOUND", "Missing ticket_id", 422);
         const message = (payload.body ?? "").trim();
@@ -94,7 +122,8 @@ Deno.serve(async (req) => {
         if (error) throw translateDbError(error);
 
         const notified = await notifyOwner(payload.ticket_id);
-        return jsonResponse({ message: data, user_notified: notified });
+        const pushed = await notifyPushForTicket(payload.ticket_id);
+        return jsonResponse({ message: data, user_notified: notified, push_sent: pushed });
       }
 
       case "messages": {
@@ -151,7 +180,23 @@ Deno.serve(async (req) => {
           p_reason: reason || null,
         });
         if (error) throw translateDbError(error);
-        return jsonResponse({ payment: data });
+
+        // An approval is the moment the request becomes officially submitted
+        // and authorised for KYC processing, so this is the single place the
+        // administration and the user are notified. A rejection sends nothing.
+        let adminNotified = false;
+        let userNotified = false;
+        if (payload.decision === "approved") {
+          const ticketId = data.ticket_id as string;
+          adminNotified = await notifyAdminOfApprovedRequest(ticketId);
+          userNotified = await notifyUserOfApprovedRequest(ticketId);
+        }
+
+        return jsonResponse({
+          payment: data,
+          admin_notified: adminNotified,
+          user_notified: userNotified,
+        });
       }
 
       default:
@@ -162,12 +207,164 @@ Deno.serve(async (req) => {
   }
 });
 
-/** Emails the ticket owner when the admin replies from the dashboard. */
+/**
+ * Sends the Android push that tells the ticket owner an admin replied.
+ *
+ * The recipient is the ticket owner, read from `kyc_requests.user_id`, exactly
+ * as the inbound-email path does, so both routes to a reply notify the same
+ * person through the same mechanism. Push is best effort: the reply is already
+ * stored and the persistent notification already exists, so a Firebase outage
+ * must not fail the admin's action. Returns how many devices it reached.
+ */
+async function notifyPushForTicket(ticketId: string): Promise<number> {
+  const admin = serviceClient();
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("user_id")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket?.user_id) {
+    console.error("Could not load the owner of ticket %s for push: %s", ticketId, error?.message);
+    return 0;
+  }
+
+  try {
+    const result = await sendPushToUser(admin, env, ticket.user_id as string, {
+      title: PUSH_TITLE,
+      body: PUSH_BODY,
+      ticketId,
+    });
+    if (result.sent === 0) {
+      console.warn("No device received the push for ticket %s.", ticketId);
+    }
+    return result.sent;
+  } catch (error) {
+    console.error(
+      "Push for ticket %s failed: %s",
+      ticketId,
+      error instanceof Error ? error.message : error,
+    );
+    return 0;
+  }
+}
+
+/**
+ * Sends the approved request to the administration mailbox.
+ *
+ * Called only after an admin approved the payment. The approval is re-read from
+ * the database rather than trusted from the request, so the email gate cannot be
+ * bypassed by a caller that merely claims the payment was approved.
+ */
+async function notifyAdminOfApprovedRequest(ticketId: string): Promise<boolean> {
+  const admin = serviceClient();
+
+  if (!await ticketPaymentApproved(ticketId)) {
+    console.warn("KYC request for ticket %s is not payment-approved; no email sent.", ticketId);
+    return false;
+  }
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket) {
+    console.error("Could not load ticket %s for admin notification: %s", ticketId, error?.message);
+    return false;
+  }
+
+  const { data: payment } = await admin
+    .from("mvola_payments")
+    .select("amount, currency, status, reviewed_at")
+    .eq("ticket_id", ticketId)
+    .eq("status", "approved")
+    .order("reviewed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const enriched = {
+    ...(ticket as TicketForAdminNotification),
+    payment_amount: payment?.amount ?? null,
+    payment_currency: payment?.currency ?? null,
+    payment_status: payment?.status ?? "approved",
+    payment_reviewed_at: payment?.reviewed_at ?? null,
+  };
+
+  try {
+    return await sendAdminRequestNotification(enriched);
+  } catch (error) {
+    // The payment decision is already committed, so a failed notification must
+    // not fail the admin's action: reporting 502 here would tell the admin the
+    // approval did not happen when it did. The failure is surfaced as
+    // `admin_notified: false` instead.
+    console.error(
+      "Could not notify the admin for ticket %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
+}
+
+/**
+ * Emails the requester the confirmation that their request is officially
+ * submitted, after the payment was approved.
+ *
+ * The payment approval is re-read from the database, so the user email is
+ * produced by the same server-side condition as the admin email and can never be
+ * triggered by a client claiming success. Failures do not roll back the
+ * approval; they are reported as `user_notified: false`.
+ */
+async function notifyUserOfApprovedRequest(ticketId: string): Promise<boolean> {
+  const admin = serviceClient();
+
+  if (!await ticketPaymentApproved(ticketId)) {
+    console.warn("KYC request for ticket %s is not payment-approved; no user email sent.", ticketId);
+    return false;
+  }
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket) {
+    console.error("Could not load ticket %s for user notification: %s", ticketId, error?.message);
+    return false;
+  }
+
+  try {
+    return await sendUserRequestSubmittedEmail(ticket as TicketForAdminNotification);
+  } catch (error) {
+    console.error(
+      "Could not notify the owner for ticket %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
+}
+
+/**
+ * Emails the ticket owner when an admin posts a reply.
+ *
+ * The recipient is `kyc_requests.register_value` — the Tango registration email
+ * the user supplied in the KYC form (`tango_registration_email`), and the address
+ * the external company was told about. It is deliberately NOT `profiles.email`,
+ * which is only the account/login address for this application.
+ *
+ * A phone-only requester is never sent mail: `register_value` also accepts a
+ * phone number, and no address is invented from it.
+ */
 async function notifyOwner(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("ticket_code, register_type, register_value")
+    .select("ticket_code, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -175,24 +372,64 @@ async function notifyOwner(ticketId: string): Promise<boolean> {
     console.error("Could not load ticket %s for owner notification: %s", ticketId, error?.message);
     return false;
   }
-  if (ticket.register_type !== "email") return false;
-  if (!emailApiKeyConfigured()) {
-    console.warn("EMAIL_API_KEY not configured: owner of %s was not emailed.", ticket.ticket_code);
+
+  const { recipient, reason } = userReplyRecipient(ticket);
+  if (!recipient) {
+    console.warn(
+      "Ticket %s: %s; the owner was not emailed.",
+      ticket.ticket_code,
+      reason,
+    );
     return false;
   }
 
-  await sendEmail({
-    to: ticket.register_value,
-    subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
-    text: [
-      "Your Tango KYC verification request has received a new response.",
-      "",
-      `Ticket ID: ${ticket.ticket_code}`,
-      "",
-      "Please open the Tango KYC Verification application to view the response.",
-    ].join("\n"),
-    idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${ticket.register_value}`,
-  });
+  if (!emailSendingConfigured()) {
+    console.warn("Resend is not configured: owner of %s was not emailed.", ticket.ticket_code);
+    return false;
+  }
+
+  try {
+    const result = await sendEmail({
+      to: recipient,
+      subject: "Réponse à votre demande de vérification de compte",
+      text: [
+        "Bonjour,",
+        "",
+        "Votre demande de vérification de compte a reçu une nouvelle réponse.",
+        "",
+        "Vous pouvez répondre directement à cet email, ou ouvrir l'application Tango KYC Verification pour consulter la réponse.",
+        "",
+        "Merci d'utiliser Tango KYC Verification.",
+      ].join("\n"),
+      replyTo: replyToAddress(ticket.reply_token as string),
+      idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${recipient}`,
+    });
+
+    // Record the outbound provider id so a reply to this very mail is matched
+    // back to the same ticket by thread id even if the address is rewritten.
+    if (!result.suppressed && result.id) {
+      const { error: recordError } = await admin.rpc("record_outbound_email", {
+        p_ticket_id: ticketId,
+        p_provider_message_id: result.id,
+      });
+      if (recordError) {
+        console.error(
+          "Could not record outbound email id for %s: %s",
+          ticket.ticket_code,
+          recordError.message,
+        );
+      }
+    }
+  } catch (error) {
+    // The reply is already stored and visible in the dashboard, so a failed
+    // notification must not fail the admin's action. It is reported instead.
+    console.error(
+      "Could not notify the owner of %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
 
   return true;
 }

@@ -85,9 +85,26 @@ class KycController extends ChangeNotifier {
 
   Future<List<TicketMessage>> messages(String ticketId) => _service.messages(ticketId);
 
-  Future<void> sendReply(String ticketId, String body) async {
-    await _service.reply(ticketId, body);
-    _requests = await _service.myRequests();
-    notifyListeners();
+  Future<List<StatusHistoryEntry>> statusHistory(String ticketId) =>
+      _service.statusHistory(ticketId);
+
+  /// Posts the caller's own reply on a ticket.
+  ///
+  /// Returns the created message, or null on failure with [lastErrorCode] set so
+  /// the screen can translate it — including `TICKET_CLOSED`, which the server
+  /// returns when the ticket was closed in the meantime.
+  String? replyErrorCode;
+
+  Future<TicketMessage?> reply({required String ticketId, required String body}) async {
+    replyErrorCode = null;
+    try {
+      return await _service.replyToTicket(ticketId: ticketId, body: body);
+    } on KycServiceException catch (error) {
+      replyErrorCode = error.code;
+      return null;
+    } catch (_) {
+      replyErrorCode = 'INTERNAL';
+      return null;
+    }
   }
 }

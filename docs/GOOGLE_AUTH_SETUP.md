@@ -60,6 +60,26 @@ If the app is distributed through Play App Signing, also copy the SHA-1/SHA-256
 from **Play Console → Release → Setup → App signing**. Devices receive the
 Play-signed build, so those are the fingerprints Google will present.
 
+### Fingerprints already in this repository
+
+The release keystore at `mobile/android/app/upload-keystore.jks` (alias
+`tango-kyc-upload`) produced the APK that is currently distributed. The keystore
+and its `mobile/android/key.properties` are git-ignored and must stay that way.
+The fingerprints below were read from the signed APK itself:
+
+| | Fingerprint |
+|---|---|
+| **SHA-1** | `C0:17:2B:0A:7C:47:5F:27:87:1D:25:B5:EF:2C:64:71:11:DD:0D:B1` |
+| **SHA-256** | `53:94:E1:F0:59:6E:E2:22:70:53:8A:39:3D:7D:B0:99:22:85:FA:8B:8A:24:EF:84:08:DE:4D:57:1A:9F:7E:57` |
+
+Register the SHA-1 above on the Android OAuth client. A debug build signed with
+the default `~/.android/debug.keystore` has a different fingerprint and needs its
+own registration if you test Google sign-in from a debug build.
+
+Treat the keystore and its password as distribution credentials: losing them
+means you can no longer ship updates that Play will accept under the same
+identity.
+
 Add the SHA-1 to the Android OAuth client created above
 (**Credentials → your Android client → edit**). You may register several
 fingerprints under one client: debug, upload and Play signing.

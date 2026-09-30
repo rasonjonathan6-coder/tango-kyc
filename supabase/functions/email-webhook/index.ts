@@ -14,9 +14,21 @@ import { AppError, errorResponse, handlePreflight, jsonResponse } from "../_shar
 import { env, serviceClient } from "../_shared/clients.ts";
 import { verifySvixSignature } from "../_shared/svix.ts";
 import { extractCleanReplyBody, sanitizeForStorage } from "../_shared/email-body.ts";
-import { fetchReceivedEmail, emailApiKeyConfigured, sendEmail } from "../_shared/email-provider.ts";
+import {
+  emailSendingConfigured,
+  fetchReceivedEmail,
+  replyToAddress,
+  sendEmail,
+  userReplyRecipient,
+} from "../_shared/email-provider.ts";
+import { sendPushToUser } from "../_shared/push.ts";
 
 const PROVIDER = "resend";
+
+/// Notification wording. Identical to the client's foreground fallback so the
+/// user sees one message regardless of app state. Contains no sensitive data.
+const PUSH_TITLE = "Nouvelle réponse à votre demande";
+const PUSH_BODY = "Vous avez reçu une nouvelle réponse concernant votre demande KYC.";
 
 interface ResendReceivedEvent {
   type?: string;
@@ -166,6 +178,14 @@ Deno.serve(async (req) => {
       p_from_email: extractAddress(email.from),
     });
     if (storeError) {
+      // A reply that arrives after the ticket was closed must not reopen it or
+      // add a message. This is an expected outcome, not a server error: the
+      // event is acknowledged so the provider stops retrying, and the reply is
+      // not forwarded to the user.
+      if (storeError.message?.includes("TICKET_CLOSED")) {
+        console.warn("Reply for closed ticket %s ignored.", ticketId);
+        return jsonResponse({ matched: true, ticket_closed: true, stored: false });
+      }
       console.error("record_inbound_reply failed:", storeError.message);
       throw new AppError("INTERNAL", "Could not store the reply", 500);
     }
@@ -180,10 +200,14 @@ Deno.serve(async (req) => {
 
     const duplicated = Boolean((stored as { duplicate?: boolean } | null)?.duplicate);
 
-    // Notify the user only for a genuinely new reply.
+    // Notify the user only for a genuinely new reply. Both the email and the
+    // Android push are driven from the resolved ticket, so a duplicate delivery
+    // produces neither a second message, nor a second push, nor a second email.
     let userNotified = false;
+    let pushSent = 0;
     if (!duplicated) {
       userNotified = await notifyUser(ticketId);
+      pushSent = await notifyPush(ticketId);
     }
 
     return jsonResponse({
@@ -191,6 +215,7 @@ Deno.serve(async (req) => {
       duplicated,
       ticket_id: ticketId,
       user_notified: userNotified,
+      push_sent: pushSent,
     });
   } catch (error) {
     return errorResponse(error);
@@ -198,16 +223,70 @@ Deno.serve(async (req) => {
 });
 
 /**
- * Emails the ticket owner when they supplied an email address. A phone-only
- * requester is never assigned an invented address; the message stays in the
- * dashboard.
+ * Sends the Android push for a resolved reply and returns how many devices it
+ * reached.
+ *
+ * The recipient is the *owner of the ticket*, read from `kyc_requests.user_id`,
+ * which is derived from the signature-verified webhook - never from anything the
+ * caller supplied. The data carries only the opaque ticket id, so a notification
+ * never exposes the reply body or an address.
+ *
+ * Push is best effort: the reply is already stored and the persistent
+ * notification already exists, so a Firebase outage must not fail the webhook
+ * (which would make the provider retry the whole event).
+ */
+async function notifyPush(ticketId: string): Promise<number> {
+  const admin = serviceClient();
+
+  const { data: ticket, error } = await admin
+    .from("kyc_requests")
+    .select("user_id")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (error || !ticket?.user_id) {
+    console.error("Could not load the owner of ticket %s for push: %s", ticketId, error?.message);
+    return 0;
+  }
+
+  try {
+    const result = await sendPushToUser(admin, env, ticket.user_id as string, {
+      title: PUSH_TITLE,
+      body: PUSH_BODY,
+      ticketId,
+    });
+    if (result.sent === 0) {
+      console.warn("No device received the push for ticket %s.", ticketId);
+    }
+    return result.sent;
+  } catch (error) {
+    console.error(
+      "Push for ticket %s failed: %s",
+      ticketId,
+      error instanceof Error ? error.message : error,
+    );
+    return 0;
+  }
+}
+
+/**
+ * Emails the ticket owner when a reply arrives by email.
+ *
+ * The recipient is `kyc_requests.register_value` — the Tango registration email
+ * the user typed into the KYC form, also known as `tango_registration_email`.
+ * That is the address the external company was told about, so it is where the
+ * reply belongs. It is deliberately NOT `profiles.email`, which is only the
+ * account/login address for Tango KYC Verification itself.
+ *
+ * `register_value` may also hold a phone number, in which case no mail is sent
+ * and the reply stays in the dashboard: an address is never invented.
  */
 async function notifyUser(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
 
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("ticket_code, register_type, register_value")
+    .select("ticket_code, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -216,32 +295,71 @@ async function notifyUser(ticketId: string): Promise<boolean> {
     return false;
   }
 
-  if (ticket.register_type !== "email") {
+  const { recipient, reason } = userReplyRecipient(ticket);
+  if (!recipient) {
+    console.warn(
+      "Ticket %s: %s; the reply stays in the dashboard.",
+      ticket.ticket_code,
+      reason,
+    );
     return false;
   }
 
-  if (!emailApiKeyConfigured()) {
+  if (!emailSendingConfigured()) {
     console.warn(
-      "EMAIL_API_KEY is not configured: reply for %s was stored but the user was NOT emailed.",
+      "Resend is not configured: reply for %s was stored but the user was NOT emailed.",
       ticket.ticket_code,
     );
     return false;
   }
 
+  // No ticket code in the subject or the body: the code is an internal routing
+  // handle. The answer is matched server side from the tokenised Reply-To and
+  // the thread ids, so the mail stays clean for the recipient.
   const text = [
-    "Your Tango KYC verification request has received a new response.",
+    "Bonjour,",
     "",
-    `Ticket ID: ${ticket.ticket_code}`,
+    "Votre demande de vérification de compte a reçu une nouvelle réponse.",
     "",
-    "Please open the Tango KYC Verification application to view the response.",
+    "Vous pouvez répondre directement à cet email, ou ouvrir l'application Tango KYC Verification pour consulter la réponse.",
+    "",
+    "Merci d'utiliser Tango KYC Verification.",
   ].join("\n");
 
-  await sendEmail({
-    to: ticket.register_value,
-    subject: `Tango KYC Verification - new response for ${ticket.ticket_code}`,
-    text,
-    idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${ticket.register_value}`,
-  });
+  try {
+    const result = await sendEmail({
+      to: recipient,
+      subject: "Réponse à votre demande de vérification de compte",
+      text,
+      replyTo: replyToAddress(ticket.reply_token as string),
+      idempotencyKey: `kyc-user-reply-${ticket.ticket_code}-${recipient}`,
+    });
+
+    // Record the outbound provider id so a reply to this very mail is matched
+    // back to the same ticket by thread id even if the address is rewritten.
+    if (!result.suppressed && result.id) {
+      const { error: recordError } = await admin.rpc("record_outbound_email", {
+        p_ticket_id: ticketId,
+        p_provider_message_id: result.id,
+      });
+      if (recordError) {
+        console.error(
+          "Could not record outbound email id for %s: %s",
+          ticket.ticket_code,
+          recordError.message,
+        );
+      }
+    }
+  } catch (error) {
+    // The reply is already stored, so a failed notification must not fail the
+    // webhook: the provider would retry the whole event otherwise.
+    console.error(
+      "Could not notify the owner of %s: %s",
+      ticket.ticket_code,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
 
   return true;
 }

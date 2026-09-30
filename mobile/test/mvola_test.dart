@@ -314,20 +314,20 @@ void main() {
   group('MVola error messages', () {
     test('never exposes the raw server text', () {
       final message = ErrorMessages.from('MVOLA_REFERENCE_REQUIRED');
-      expect(message, 'Please enter your MVola transaction reference.');
+      expect(message, 'Saisissez la référence de la transaction MVola.');
       expect(message.contains('MVOLA_'), isFalse);
     });
 
     test('maps the remaining MVola codes', () {
       expect(ErrorMessages.from('MVOLA_NOT_CONFIGURED'),
-          'Mobile Money payment is not available right now.');
+          'Le paiement Mobile Money n’est pas disponible pour le moment.');
       expect(ErrorMessages.from('MVOLA_REASON_REQUIRED'),
-          'Please explain why the payment is refused.');
+          'Expliquez pourquoi le paiement est refusé.');
       expect(ErrorMessages.from('PAYMENT_ALREADY_REVIEWED'),
-          'This payment has already been reviewed.');
-      expect(ErrorMessages.from('PAYMENT_NOT_FOUND'), 'Payment not found.');
+          'Ce paiement a déjà été examiné.');
+      expect(ErrorMessages.from('PAYMENT_NOT_FOUND'), 'Paiement introuvable.');
       expect(ErrorMessages.from('MVOLA_PAYER_INVALID'),
-          'Please enter a valid phone number.');
+          'Saisissez un numéro de téléphone valide.');
     });
   });
 }

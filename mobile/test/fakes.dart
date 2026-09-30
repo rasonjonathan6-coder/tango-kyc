@@ -15,6 +15,12 @@ class FakeAuthService implements AuthService {
     this.failWith,
     this.profile = const Profile(id: 'fake-user', email: 'user@example.com', role: 'user'),
     this.callbackOutcome = AuthCallbackOutcome.signedIn,
+    this.acceptedOtp = '12345678',
+    this.otpSendFails = false,
+    this.callbackError,
+    this.callbackDelay = Duration.zero,
+    this.callbackSession,
+    this.resendError,
   });
 
   /// When set, every action throws [AuthException] carrying this message.
@@ -24,17 +30,48 @@ class FakeAuthService implements AuthService {
   /// Returned by [handleAuthCallback]; lets tests exercise recovery routing.
   final AuthCallbackOutcome callbackOutcome;
 
+  /// The only code [verifyEmailOtp] accepts. Any other value throws, mirroring
+  /// Supabase's rejection of an invalid or expired token.
+  final String acceptedOtp;
+
+  /// Fails only the OTP send, so a test can reach the entry screen with a code
+  /// request that the server refused.
+  final bool otpSendFails;
+
+  /// When set, [handleAuthCallback] throws it: an expired, already-consumed or
+  /// incompatible PKCE code.
+  final Object? callbackError;
+
+  /// Holds [handleAuthCallback] open so a duplicate delivery can overlap it and
+  /// prove the exchange is serialised.
+  final Duration callbackDelay;
+
+  /// The session a successful callback would establish. Mirrors the library,
+  /// where exchanging the code signs the user in before returning.
+  final Session? callbackSession;
+
+  /// When set, [resendEmailOtp] throws it (for example the per-hour limit).
+  final Object? resendError;
+
   int signInCalls = 0;
   int signUpCalls = 0;
   int resetCalls = 0;
   int googleCalls = 0;
+  int otpSendCalls = 0;
+  int otpResendCalls = 0;
+  int otpVerifyCalls = 0;
+  int callbackCalls = 0;
+  Session? _session;
   String? lastEmail;
+  String? lastOtpToken;
+  EmailOtpPurpose? lastOtpPurpose;
+  Uri? lastCallbackUri;
 
   @override
-  Session? get session => null;
+  Session? get session => _session;
 
   @override
-  User? get currentUser => null;
+  User? get currentUser => _session?.user;
 
   @override
   Stream<AuthState> get authStateChanges => const Stream<AuthState>.empty();
@@ -81,6 +118,45 @@ class FakeAuthService implements AuthService {
   }
 
   @override
+  Future<void> sendEmailOtp(String email, EmailOtpPurpose purpose) async {
+    otpSendCalls += 1;
+    lastEmail = email;
+    lastOtpPurpose = purpose;
+    _maybeFail();
+    if (otpSendFails) {
+      throw const AuthException('over_email_send_rate_limit');
+    }
+  }
+
+  @override
+  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) async {
+    otpResendCalls += 1;
+    lastEmail = email;
+    lastOtpPurpose = purpose;
+    _maybeFail();
+    if (resendError != null) {
+      throw resendError!;
+    }
+  }
+
+  @override
+  Future<void> verifyEmailOtp({
+    required String email,
+    required String token,
+    required EmailOtpPurpose purpose,
+  }) async {
+    otpVerifyCalls += 1;
+    lastEmail = email;
+    lastOtpToken = token;
+    lastOtpPurpose = purpose;
+    _maybeFail();
+    // Supabase reports a wrong code and an expired code identically.
+    if (token != acceptedOtp) {
+      throw const AuthException('Token has expired or is invalid');
+    }
+  }
+
+  @override
   Future<void> signOut() async {}
 
   @override
@@ -91,22 +167,57 @@ class FakeAuthService implements AuthService {
   }
 
   @override
-  Future<AuthCallbackOutcome> handleAuthCallback(Uri uri) async =>
-      callbackOutcome;
+  Future<AuthCallbackOutcome> handleAuthCallback(Uri uri) async {
+    callbackCalls += 1;
+    lastCallbackUri = uri;
+    if (callbackDelay > Duration.zero) {
+      await Future<void>.delayed(callbackDelay);
+    }
+    if (callbackError != null) {
+      throw callbackError!;
+    }
+    // A real exchange stores the session before returning.
+    _session = callbackSession;
+    return callbackOutcome;
+  }
 
   @override
   Future<Profile> loadProfile() async => profile;
 }
 
 class FakeKycService implements KycService {
-  FakeKycService({this.createdTicket, this.failWithCode, this.requests = const []});
+  FakeKycService({
+    this.createdTicket,
+    this.failWithCode,
+    this.requests = const [],
+    this.statusHistoryEntries = const [],
+    this.notificationItems = const [],
+    this.messageItems = const [],
+    this.failNotificationsWithCode,
+  });
 
   final KycRequest? createdTicket;
   final String? failWithCode;
   final List<KycRequest> requests;
+  final List<StatusHistoryEntry> statusHistoryEntries;
+  final List<NotificationItem> notificationItems;
+
+  /// Messages returned by [messages], so a ticket's conversation can be rendered
+  /// without a backend.
+  final List<TicketMessage> messageItems;
+
+  /// When set, the notification reads fail with this code, so error handling
+  /// can be exercised without a network.
+  final String? failNotificationsWithCode;
 
   int createCalls = 0;
-  int replyCalls = 0;
+  int statusHistoryCalls = 0;
+  int notificationsCalls = 0;
+  int markReadCalls = 0;
+  int markAllReadCalls = 0;
+  int markTicketReadCalls = 0;
+  String? lastMarkedReadId;
+  String? lastMarkedTicketId;
 
   @override
   Future<KycRequest> createRequest({
@@ -136,11 +247,76 @@ class FakeKycService implements KycService {
   }
 
   @override
-  Future<List<TicketMessage>> messages(String ticketId) async => const [];
+  Future<List<TicketMessage>> messages(String ticketId) async =>
+      messageItems.where((m) => m.ticketId == ticketId).toList();
+
+  final List<({String ticketId, String body})> replies = [];
+
+  /// When set, a reply fails with this code, so the closed-ticket and network
+  /// error paths can be exercised without a backend.
+  String? failReplyWithCode;
 
   @override
-  Future<void> reply(String ticketId, String body) async {
-    replyCalls += 1;
+  Future<TicketMessage> replyToTicket({
+    required String ticketId,
+    required String body,
+  }) async {
+    if (failReplyWithCode != null) {
+      throw KycServiceException(failReplyWithCode!, 'boom');
+    }
+    replies.add((ticketId: ticketId, body: body));
+    return TicketMessage(
+      id: 'reply-${replies.length}',
+      ticketId: ticketId,
+      senderType: SenderType.user,
+      body: body,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<List<StatusHistoryEntry>> statusHistory(String ticketId) async {
+    statusHistoryCalls += 1;
+    return statusHistoryEntries;
+  }
+
+  @override
+  Future<List<NotificationItem>> notifications() async {
+    notificationsCalls += 1;
+    if (failNotificationsWithCode != null) {
+      throw KycServiceException(failNotificationsWithCode!, 'boom');
+    }
+    return notificationItems;
+  }
+
+  @override
+  Future<void> markNotificationRead(String notificationId) async {
+    markReadCalls += 1;
+    lastMarkedReadId = notificationId;
+  }
+
+  @override
+  Future<void> markAllNotificationsRead() async {
+    markAllReadCalls += 1;
+  }
+
+  @override
+  Future<void> markTicketNotificationsRead(String ticketId) async {
+    markTicketReadCalls += 1;
+    lastMarkedTicketId = ticketId;
+  }
+
+  final List<({String token, String platform})> registeredTokens = [];
+  final List<String> unregisteredTokens = [];
+
+  @override
+  Future<void> registerDeviceToken({required String token, String platform = 'android'}) async {
+    registeredTokens.add((token: token, platform: platform));
+  }
+
+  @override
+  Future<void> unregisterDeviceToken({required String token}) async {
+    unregisteredTokens.add(token);
   }
 }
 
@@ -303,4 +479,45 @@ class FakeAdminMvolaService implements AdminMvolaService {
     _payments[index] = updated;
     return updated;
   }
+}
+
+/// In-memory admin service, mirroring the read/act split of the real one.
+class FakeAdminService implements AdminService {
+  FakeAdminService({this.requests = const [], this.unmatched = const []});
+
+  final List<KycRequest> requests;
+  final List<UnmatchedReply> unmatched;
+
+  int statusCalls = 0;
+  int postCalls = 0;
+  int paymentCalls = 0;
+
+  @override
+  Future<AdminStats> stats() async => AdminStats(
+        total: requests.length,
+        pending: requests.where((r) => r.status == KycStatus.pending).length,
+        inReview: requests.where((r) => r.status == KycStatus.inReview).length,
+        replied: requests.where((r) => r.status == KycStatus.replied).length,
+        closed: requests.where((r) => r.status == KycStatus.closed).length,
+        unmatched: unmatched.length,
+      );
+
+  @override
+  Future<({List<KycRequest> tickets, List<UnmatchedReply> unmatched})> list() async =>
+      (tickets: requests, unmatched: unmatched);
+
+  @override
+  Future<List<TicketMessage>> messages(String ticketId) async => const [];
+
+  @override
+  Future<void> setStatus(String ticketId, KycStatus status) async => statusCalls += 1;
+
+  @override
+  Future<void> postMessage(String ticketId, String body) async => postCalls += 1;
+
+  @override
+  Future<void> resolveUnmatched(String unmatchedId, String ticketId) async {}
+
+  @override
+  Future<void> requestPayment(String ticketId) async => paymentCalls += 1;
 }

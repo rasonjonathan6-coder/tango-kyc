@@ -58,6 +58,9 @@ class AdminController extends ChangeNotifier {
   Future<bool> resolveUnmatched(String unmatchedId, String ticketId) =>
       _run(() => _service.resolveUnmatched(unmatchedId, ticketId));
 
+  Future<bool> requestPayment(String ticketId) =>
+      _run(() => _service.requestPayment(ticketId));
+
   Future<bool> _run(Future<void> Function() action) async {
     lastErrorCode = null;
     try {

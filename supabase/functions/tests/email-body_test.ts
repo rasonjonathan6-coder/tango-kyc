@@ -39,7 +39,7 @@ Deno.test("htmlToText decodes entities", () => {
 
 Deno.test("stripHeaders removes an RFC 5322 header block", () => {
   const raw = [
-    "From: Admin <rasonjonathan6@gmail.com>",
+    "From: Admin <tangoturq@gmail.com>",
     "To: reply+abc@inbound.resend.app",
     "Subject: Re: Manual KYC Verification request",
     "Date: Thu, 25 Sep 2026 14:00:00 +0000",
@@ -88,7 +88,7 @@ Deno.test("stripQuotedHistory cuts at a signature delimiter", () => {
 Deno.test("extractCleanReplyBody prefers the text part and cleans it", () => {
   const body = extractCleanReplyBody({
     text: [
-      "From: Admin <rasonjonathan6@gmail.com>",
+      "From: Admin <tangoturq@gmail.com>",
       "Subject: Re: KYC",
       "",
       "Hello,",

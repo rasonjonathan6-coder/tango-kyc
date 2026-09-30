@@ -30,27 +30,27 @@ class Validators {
 
   static String? validateProfileLink(String? value) {
     final link = normalize(value ?? '');
-    if (link.isEmpty) return 'Tango Profile Link is required.';
-    if (link.length > 2048) return 'This profile link is too long.';
+    if (link.isEmpty) return 'Le lien du profil Tango est obligatoire.';
+    if (link.length > 2048) return 'Ce lien de profil est trop long.';
     if (!_urlPattern.hasMatch(link)) {
-      return 'Please enter a valid link starting with https://';
+      return 'Saisissez un lien valide commençant par https://';
     }
     return null;
   }
 
   static String? validateRegisterValue(String? value) {
     final input = normalize(value ?? '');
-    if (input.isEmpty) return 'Please enter your register email or phone number.';
+    if (input.isEmpty) return 'Saisissez l’adresse email ou le numéro enregistré.';
 
     if (looksLikeEmail(input)) {
-      return _emailPattern.hasMatch(input) ? null : 'Please enter a valid email address.';
+      return _emailPattern.hasMatch(input) ? null : 'Saisissez une adresse email valide.';
     }
 
     // Strip formatting characters the way the backend does.
     final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return 'Please enter a valid email address or phone number.';
+    if (digits.isEmpty) return 'Saisissez une adresse email ou un numéro valide.';
     if (!_phonePattern.hasMatch(input.replaceAll(RegExp(r'[^0-9+]'), ''))) {
-      return 'Please enter a valid phone number (7 to 15 digits).';
+      return 'Saisissez un numéro de téléphone valide (7 à 15 chiffres).';
     }
     return null;
   }
@@ -66,20 +66,20 @@ class Validators {
 
   static String? validateEmail(String? value) {
     final email = normalize(value ?? '');
-    if (email.isEmpty) return 'Please enter your email address.';
-    if (!_emailPattern.hasMatch(email)) return 'Please enter a valid email address.';
+    if (email.isEmpty) return 'Saisissez votre adresse email.';
+    if (!_emailPattern.hasMatch(email)) return 'Saisissez une adresse email valide.';
     return null;
   }
 
   static String? validatePassword(String? value) {
     final password = value ?? '';
-    if (password.isEmpty) return 'Please enter a password.';
-    if (password.length < 8) return 'Password is too short (at least 8 characters).';
+    if (password.isEmpty) return 'Saisissez un mot de passe.';
+    if (password.length < 8) return 'Mot de passe trop court (8 caractères minimum).';
     return null;
   }
 
   static String? validatePasswordConfirmation(String? password, String? confirmation) {
-    if ((password ?? '') != (confirmation ?? '')) return 'Passwords do not match.';
+    if ((password ?? '') != (confirmation ?? '')) return 'Les mots de passe ne correspondent pas.';
     return null;
   }
 
@@ -87,11 +87,11 @@ class Validators {
   /// characters, no markup and no control characters. The backend re-checks it.
   static String? validateMvolaReference(String? value) {
     final reference = normalize(value ?? '');
-    if (reference.isEmpty) return 'Please enter your MVola transaction reference.';
-    if (reference.length < 3) return 'This transaction reference is too short.';
-    if (reference.length > 64) return 'This transaction reference is too long.';
+    if (reference.isEmpty) return 'Saisissez la référence de la transaction MVola.';
+    if (reference.length < 3) return 'Cette référence de transaction est trop courte.';
+    if (reference.length > 64) return 'Cette référence de transaction est trop longue.';
     if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9 ._/-]*$').hasMatch(reference)) {
-      return 'Use letters, digits, spaces and . _ / - only.';
+      return 'Utilisez uniquement des lettres, des chiffres et les espaces . _ / -';
     }
     return null;
   }
@@ -102,7 +102,7 @@ class Validators {
     if (input.isEmpty) return null;
     final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
     if (digits.length < 7 || digits.length > 15) {
-      return 'Please enter a valid phone number (7 to 15 digits).';
+      return 'Saisissez un numéro de téléphone valide (7 à 15 chiffres).';
     }
     return null;
   }
@@ -119,35 +119,36 @@ class ErrorMessages {
 
     // Server error codes returned by the Edge Functions.
     const codes = <String, String>{
-      'PROFILE_LINK_REQUIRED': 'Tango Profile Link is required.',
-      'PROFILE_LINK_INVALID': 'Please enter a valid link starting with https://',
-      'PROFILE_LINK_TOO_LONG': 'This profile link is too long.',
-      'REGISTER_REQUIRED': 'Please enter your register email or phone number.',
-      'REGISTER_EMAIL_INVALID': 'Please enter a valid email address.',
-      'REGISTER_PHONE_INVALID': 'Please enter a valid phone number.',
-      'RATE_LIMITED': 'You already sent a request recently. Please wait a few minutes.',
-      'RATE_LIMITED_DAILY': 'You have reached the maximum number of requests for today.',
-      'FORBIDDEN': 'You are not allowed to do that.',
-      'TICKET_NOT_FOUND': 'Request not found.',
-      'AUTH_REQUIRED': 'Please sign in and try again.',
-      'INVALID_TOKEN': 'Your session has expired. Please sign in again.',
-      'MESSAGE_REQUIRED': 'Please write a message.',
+      'PROFILE_LINK_REQUIRED': 'Le lien du profil Tango est obligatoire.',
+      'PROFILE_LINK_INVALID': 'Saisissez un lien valide commençant par https://',
+      'PROFILE_LINK_TOO_LONG': 'Ce lien de profil est trop long.',
+      'REGISTER_REQUIRED': 'Saisissez l’adresse email ou le numéro enregistré.',
+      'REGISTER_EMAIL_INVALID': 'Saisissez une adresse email valide.',
+      'REGISTER_PHONE_INVALID': 'Saisissez un numéro de téléphone valide.',
+      'RATE_LIMITED': 'Vous avez déjà envoyé une demande récemment. Patientez quelques minutes.',
+      'RATE_LIMITED_DAILY': 'Vous avez atteint le nombre maximum de demandes pour aujourd’hui.',
+      'FORBIDDEN': 'Vous n’êtes pas autorisé à effectuer cette action.',
+      'TICKET_NOT_FOUND': 'Demande introuvable.',
+      'TICKET_CLOSED': 'Cette demande est fermée : vous ne pouvez plus y répondre.',
+      'AUTH_REQUIRED': 'Connectez-vous puis réessayez.',
+      'INVALID_TOKEN': 'Votre session a expiré. Reconnectez-vous.',
+      'MESSAGE_REQUIRED': 'Écrivez un message.',
       'EMAIL_DELIVERY_FAILED':
-          'Your request was saved, but the confirmation email could not be sent. Support has been notified.',
-      'SERVICE_NOT_CONFIGURED': 'This service is temporarily unavailable. Please try again later.',
+          'Votre demande a été enregistrée, mais l’email de confirmation n’a pas pu être envoyé. Le support a été prévenu.',
+      'SERVICE_NOT_CONFIGURED': 'Ce service est momentanément indisponible. Réessayez plus tard.',
       // MVola
-      'PAYMENT_NOT_FOUND': 'Payment not found.',
-      'PAYMENT_ALREADY_REVIEWED': 'This payment has already been reviewed.',
-      'MVOLA_NOT_CONFIGURED': 'Mobile Money payment is not available right now.',
-      'MVOLA_DISABLED': 'Mobile Money payment is not available right now.',
-      'MVOLA_UNAVAILABLE': 'Mobile Money payment is not available right now.',
-      'MVOLA_REFERENCE_REQUIRED': 'Please enter your MVola transaction reference.',
-      'MVOLA_REFERENCE_INVALID': 'This transaction reference is not valid.',
-      'MVOLA_PAYER_INVALID': 'Please enter a valid phone number.',
-      'MVOLA_DECISION_INVALID': 'Invalid decision.',
-      'MVOLA_REASON_REQUIRED': 'Please explain why the payment is refused.',
-      'MVOLA_REASON_INVALID': 'This explanation is too long.',
-      'INTERNAL': 'Something went wrong. Please try again.',
+      'PAYMENT_NOT_FOUND': 'Paiement introuvable.',
+      'PAYMENT_ALREADY_REVIEWED': 'Ce paiement a déjà été examiné.',
+      'MVOLA_NOT_CONFIGURED': 'Le paiement Mobile Money n’est pas disponible pour le moment.',
+      'MVOLA_DISABLED': 'Le paiement Mobile Money n’est pas disponible pour le moment.',
+      'MVOLA_UNAVAILABLE': 'Le paiement Mobile Money n’est pas disponible pour le moment.',
+      'MVOLA_REFERENCE_REQUIRED': 'Saisissez la référence de la transaction MVola.',
+      'MVOLA_REFERENCE_INVALID': 'Cette référence de transaction n’est pas valide.',
+      'MVOLA_PAYER_INVALID': 'Saisissez un numéro de téléphone valide.',
+      'MVOLA_DECISION_INVALID': 'Décision invalide.',
+      'MVOLA_REASON_REQUIRED': 'Expliquez pourquoi le paiement est refusé.',
+      'MVOLA_REASON_INVALID': 'Cette explication est trop longue.',
+      'INTERNAL': 'Une erreur est survenue. Réessayez.',
     };
 
     // Longest code first: `RATE_LIMITED_DAILY` must not be shadowed by its
@@ -162,27 +163,36 @@ class ErrorMessages {
     // Supabase Auth messages, mapped to the wording the brief requires.
     final lower = raw.toLowerCase();
     if (lower.contains('already registered') || lower.contains('already been registered')) {
-      return 'Email already registered.';
+      return 'Email déjà enregistré.';
     }
-    if (lower.contains('user already exists')) return 'Email already registered.';
+    if (lower.contains('user already exists')) return 'Email déjà enregistré.';
     if (lower.contains('invalid login credentials') || lower.contains('incorrect password')) {
-      return 'Incorrect password.';
+      return 'Mot de passe incorrect.';
     }
     if (lower.contains('email not confirmed')) {
-      return 'Please confirm your email address before signing in.';
+      return 'Confirmez votre adresse email avant de vous connecter.';
     }
+      // OTP verification failures. Supabase reports both an expired code and a
+      // wrong code as "token has expired or is invalid", and it must not disclose
+      // which, so the copy stays deliberately ambiguous.
+      if (lower.contains('token has expired') ||
+          lower.contains('otp_expired') ||
+          lower.contains('invalid token') ||
+          lower.contains('token is invalid')) {
+        return 'Ce code est incorrect ou a expiré. Demandez-en un nouveau.';
+      }
     if (lower.contains('invalid email') || lower.contains('unable to validate email')) {
-      return 'Invalid email.';
+      return 'Email invalide.';
     }
-    if (lower.contains('password should be at least')) return 'Password is too short.';
+    if (lower.contains('password should be at least')) return 'Mot de passe trop court.';
     if (lower.contains('rate limit') || lower.contains('too many requests')) {
-      return 'Too many attempts. Please wait a moment and try again.';
+      return 'Trop de tentatives. Patientez un instant puis réessayez.';
     }
     if (lower.contains('network') || lower.contains('socket') || lower.contains('connection')) {
-      return 'No internet connection. Please check your network and try again.';
+      return 'Pas de connexion internet. Vérifiez votre réseau puis réessayez.';
     }
-    if (lower.contains('timeout')) return 'The request took too long. Please try again.';
+    if (lower.contains('timeout')) return 'La requête a pris trop de temps. Réessayez.';
 
-    return 'Something went wrong. Please try again.';
+    return 'Une erreur est survenue. Réessayez.';
   }
 }

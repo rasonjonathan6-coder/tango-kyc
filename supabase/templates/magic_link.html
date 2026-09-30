@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>Votre code de vérification</title>
+  <!--[if mso]>
+  <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+  <![endif]-->
+  <style>
+    /* ------------------------------------------------------------------
+       Thème de marque, repris de mobile/lib/ui/theme/app_theme.dart :
+       _seed = #2F6B5F, heroGradient = #2F6B5F -> #46947D, onHero = #F2FBF7.
+       Modifier ces seules valeurs suffit à reteinter tout l'email.
+       ------------------------------------------------------------------ */
+    .canvas      { background-color: #F3F5F9; }
+    .card        { background-color: #FFFFFF; }
+    .headline,
+    .brand-name,
+    .otp-label,
+    .foot-name   { color: #101828; }
+    .body-text   { color: #667085; }
+    .otp-panel   { background-color: #F4FAF8; border-color: #D2E7E0; }
+    .notice      { background-color: #F8FAFC; border-color: #EDF0F4; }
+    .badge       { background-color: #EAF4F0; color: #2F6B5F; }
+    .pill        { background-color: #F4FAF8; border-color: #D2E7E0; color: #2F6B5F; }
+    .rule        { border-color: #E7ECEF; }
+    .footer      { background-color: #FAFBFC; }
+
+    /* Le code est la seule information critique : il doit rester lisible
+       même si le client email supprime les feuilles de style. */
+    .otp-code {
+      font-family: 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+      font-size: 40px; line-height: 1.15; font-weight: 700;
+      letter-spacing: 10px; text-indent: 10px;
+      color: #2F6B5F; white-space: nowrap;
+    }
+
+    /* Gmail et Outlook mobile ne laissent qu'environ 320px utiles. Le code à
+       40px avec 10px d'interlettrage mesure 273px : il débordait. À 32px/6px
+       il descend à 202px, ce qui laisse une marge de sécurité d'environ 20%
+       pour les clients dépourvus de la police monospace visée. */
+    @media only screen and (max-width: 420px) {
+      .wrap      { padding: 22px 10px !important; }
+      .card-pad  { padding-left: 20px !important; padding-right: 20px !important; }
+      .otp-code  { font-size: 32px !important; letter-spacing: 6px !important; text-indent: 6px !important; }
+      .headline  { font-size: 23px !important; letter-spacing: -0.4px !important; }
+      .hide-sm   { display: none !important; }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .canvas    { background-color: #0C1211 !important; }
+      .card      { background-color: #141A19 !important; }
+      .headline,
+      .brand-name,
+      .otp-label,
+      .foot-name { color: #ECF3F1 !important; }
+      .body-text { color: #A9B6B2 !important; }
+      .otp-code  { color: #6FCBAF !important; }
+      .otp-panel { background-color: #16211E !important; border-color: #24403A !important; }
+      .notice    { background-color: #131A19 !important; border-color: #22302D !important; }
+      .badge     { background-color: #1B3A33 !important; color: #6FCBAF !important; }
+      .pill      { background-color: #16211E !important; border-color: #24403A !important; color: #6FCBAF !important; }
+      .rule      { border-color: #22302D !important; }
+      .footer    { background-color: #101615 !important; }
+    }
+  </style>
+</head>
+
+<body class="canvas" style="margin:0;padding:0;background-color:#F3F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+  <!-- Pré-en-tête : masqué dans le corps, affiché dans la boîte de réception.
+       Les espaces insécables empêchent le client d'y accoler le texte suivant. -->
+  <div style="display:none;font-size:1px;color:#F3F5F9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    Votre code de vérification Tango KYC à usage unique.
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="canvas" style="background-color:#F3F5F9;">
+    <tr>
+      <td align="center" class="wrap" style="padding:42px 14px;">
+
+        <!--[if mso]><table role="presentation" width="580" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="card" style="max-width:580px;background-color:#FFFFFF;border-radius:24px;overflow:hidden;box-shadow:0 12px 40px rgba(15,23,42,0.10);">
+
+          <!-- ============================ En-tête de marque ============================ -->
+          <tr>
+            <td class="card-pad rule" style="padding:28px 34px;background-color:#FFFFFF;border-bottom:1px solid #E7ECEF;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td valign="middle">
+
+                    <!--
+                      LOGO
+                      Par défaut l'identité est dessinée en HTML/CSS : elle
+                      s'affiche donc toujours, y compris quand les images sont
+                      bloquées (comportement par défaut de Gmail et d'Outlook).
+
+                      Pour utiliser votre logo bitmap, décommentez le bloc <img>
+                      ci-dessous et renseignez LOGO_URL.
+                      Deux pièges à connaître :
+                        1. Gmail supprime les images encodées en base64 : il faut
+                           une URL https:// publique.
+                        2. Les images distantes ne s'affichent qu'après accord du
+                           destinataire. Gardez donc l'attribut alt et les
+                           dimensions sur le <img>, sinon la mise en page casse
+                           pendant le blocage.
+                      Hébergement gratuit possible : Supabase Storage (bucket
+                      public). Voir docs/EMAIL_SETUP.md, section « Logo ».
+                    -->
+                    <!--
+                    <img src="LOGO_URL" width="42" height="42" alt="Tango KYC"
+                         style="display:block;width:42px;height:42px;border-radius:12px;">
+                    -->
+
+                    <!-- Identité de repli, rendue en CSS -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" width="42" style="width:42px;height:42px;border-radius:12px;text-align:center;background-color:#2F6B5F;color:#F2FBF7;font-size:20px;font-weight:800;line-height:42px;">
+                          T
+                        </td>
+                        <td style="padding-left:12px;">
+                          <div class="brand-name" style="font-size:18px;font-weight:800;color:#101828;line-height:1.2;">
+                            Tango KYC
+                          </div>
+                          <div class="body-text" style="font-size:12px;color:#98A2B3;margin-top:3px;">
+                            Vérification sécurisée
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                  <td align="right" valign="middle" class="hide-sm">
+                    <span class="badge" style="display:inline-block;padding:7px 12px;background-color:#EAF4F0;color:#2F6B5F;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:0.3px;">
+                      SÉCURISÉ
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ================================ Accroche ================================ -->
+          <tr>
+            <td class="card-pad" style="padding:40px 38px 18px;text-align:center;">
+
+              <div class="pill" style="display:inline-block;margin-bottom:18px;padding:8px 14px;background-color:#F4FAF8;border:1px solid #D2E7E0;border-radius:999px;color:#2F6B5F;font-size:11px;font-weight:700;letter-spacing:0.6px;">
+                VÉRIFICATION DE CONNEXION
+              </div>
+
+              <h1 class="headline" style="margin:0;font-size:29px;line-height:1.25;letter-spacing:-0.7px;color:#101828;font-weight:800;">
+                Votre code de vérification
+              </h1>
+
+              <p class="body-text" style="margin:14px auto 0;max-width:430px;font-size:15px;line-height:1.7;color:#667085;">
+                Saisissez ce code dans l'application Tango KYC pour confirmer votre identité.
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- ================================= Le code ================================= -->
+          <tr>
+            <td class="card-pad" style="padding:20px 38px 10px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="otp-panel" style="background-color:#F4FAF8;border:1px solid #D2E7E0;border-radius:20px;">
+                <tr>
+                  <td style="padding:30px 18px;text-align:center;">
+
+                    <div class="otp-label" style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:#7A8B87;text-transform:uppercase;margin-bottom:14px;">
+                      Code à usage unique
+                    </div>
+
+                    <!--
+                      Le code lui-même : du texte, jamais une image. Il reste
+                      donc lisible et copiable même images bloquées.
+                    -->
+                    <div class="otp-code">{{ .Token }}</div>
+
+                    <div class="body-text" style="margin-top:16px;font-size:12px;color:#8B93A5;">
+                      Ce code expire dans 1 heure
+                    </div>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ========================= Avertissement de sécurité ========================= -->
+          <tr>
+            <td class="card-pad" style="padding:24px 38px 10px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="notice" style="background-color:#F8FAFC;border:1px solid #EDF0F4;border-radius:16px;">
+                <tr>
+                  <td style="padding:17px 18px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="top" width="30" style="width:30px;padding-right:4px;">
+                          <div class="badge" style="width:24px;height:24px;border-radius:8px;background-color:#EAF4F0;text-align:center;line-height:24px;font-size:13px;">&#128274;</div>
+                        </td>
+                        <td valign="top">
+                          <div class="brand-name" style="font-size:13px;font-weight:700;color:#344054;margin-bottom:4px;">
+                            Gardez ce code confidentiel
+                          </div>
+                          <div class="body-text" style="font-size:12px;line-height:1.6;color:#667085;">
+                            L'équipe Tango KYC ne vous demandera jamais de communiquer ce code,
+                            ni par téléphone, ni par message.
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ================================== Aide ================================== -->
+          <tr>
+            <td class="card-pad" style="padding:22px 38px 36px;text-align:center;">
+              <p class="body-text" style="margin:0;font-size:12px;line-height:1.6;color:#98A2B3;">
+                Vous n'avez pas demandé ce code ? Ignorez cet email : votre compte reste protégé.
+              </p>
+            </td>
+          </tr>
+
+          <!-- ============================== Pied de page ============================== -->
+          <tr>
+            <td class="footer rule" style="background-color:#FAFBFC;border-top:1px solid #E7ECEF;padding:25px 30px;text-align:center;">
+              <div class="foot-name" style="font-size:14px;font-weight:800;color:#344054;">
+                Tango KYC
+              </div>
+              <div class="body-text" style="margin-top:7px;font-size:11px;color:#98A2B3;">
+                Email automatique de sécurité — merci de ne pas y répondre.
+              </div>
+              <div class="body-text" style="margin-top:13px;font-size:10px;color:#B0B7C3;">
+                © Tango KYC — Tous droits réservés
+              </div>
+            </td>
+          </tr>
+
+        </table>
+        <!--[if mso]></td></tr></table><![endif]-->
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

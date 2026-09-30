@@ -5,7 +5,8 @@ cover the whole backend; the app is a signed artefact you build.
 
 ```
 Supabase (free)      database + auth + Edge Functions, HTTPS endpoint
-Resend (free)        outbound mail, inbound receiving, webhook
+Mailjet (free)       outbound mail
+Resend (free)        inbound receiving, webhook
 Android              APK / AAB built locally, distributed directly or via Play
 ```
 
@@ -27,13 +28,21 @@ Android              APK / AAB built locally, distributed directly or via Play
 
 ```bash
 supabase secrets set \
+  MAILJET_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  MAILJET_SECRET_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  MAILJET_FROM_EMAIL="Tango KYC Verification <notifications@your-domain.com>" \
   EMAIL_API_KEY=re_xxxxxxxx \
-  EMAIL_FROM="Tango KYC Verification <notifications@your-domain.com>" \
   EMAIL_INBOUND_DOMAIN=your-domain.com \
   EMAIL_INBOUND_MAILBOX=reply \
   RESEND_WEBHOOK_SECRET=whsec_xxxxxxxx \
-  ADMIN_EMAIL=rasonjonathan6@gmail.com
+  ADMIN_EMAIL=customerservicefor032@gmail.com \
+  KYC_SUPPORT_EMAIL=tangoturq@gmail.com
 ```
+
+`ADMIN_EMAIL` is the administration identity (the human who acts in the admin
+dashboard); `KYC_SUPPORT_EMAIL` is the société/support KYC mailbox that receives
+the requests and the user's messages and replies to them. They are distinct roles
+and neither falls back to the other.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided by the platform.
 Never add them to the app.
@@ -102,7 +111,7 @@ the function so it picks the value up.
 
 ## 6. Account for the free-tier email ceiling
 
-Resend's 100 emails/day is the tightest limit in the stack. Each ticket costs one
+Mailjet's 200 emails/day is the tightest limit in the stack. Each ticket costs one
 admin email, plus one user notice per reply. With the default daily cap of 5
 requests per user, a handful of users stays far inside it.
 
@@ -209,9 +218,10 @@ If a bad migration did reach production, fix it forward with a new migration.
 | Item | Free tier | Paid trigger |
 | --- | --- | --- |
 | Supabase | 500 MB DB, 5 GB egress | Large media or heavy reads (not used here) |
-| Resend | 3,000/month, 100/day | Sustained volume beyond ~50 tickets/day |
+| Mailjet | 200 emails/day | Sustained volume beyond ~100 tickets/day |
+| Resend | 3,000/month inbound | Inbound volume beyond ~3,000 replies/month |
 | Hosting | None needed | Only if a web client is added later |
 
 At the expected volume this runs at no cost. The first limit you are likely to
-feel is Resend's 100/day, which is a billing decision rather than an
+feel is Mailjet's 200 emails/day, which is a billing decision rather than an
 architectural one.
