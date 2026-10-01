@@ -268,6 +268,63 @@ void main() {
       expect(approvedPayment.paymentStatus, 'approved');
     });
 
+    test('KycRequest trusts the server state over an absent payment embed', () {
+      // Regression: a payment approved server side must show as submitted even
+      // when the read path returns no (or a stale) `mvola_payments` embed. The
+      // embed used to override the server-derived `is_submitted`, which hid the
+      // reply composer for a request the server would in fact accept.
+      final approved = KycRequest.fromMap({
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'approved',
+        'is_submitted': true,
+      });
+      expect(approved.paymentRequired, isTrue);
+      expect(approved.isSubmitted, isTrue);
+      expect(approved.paymentStatus, 'approved');
+
+      // A stale embed still cannot un-submit a request the server reports as
+      // submitted.
+      final staleEmbed = KycRequest.fromMap({
+        'id': '1',
+        'ticket_code': 'TNG-1',
+        'tango_profile_link': 'https://tango.me/u/1',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'approved',
+        'is_submitted': true,
+        'mvola_payments': const [],
+      });
+      expect(staleEmbed.isSubmitted, isTrue);
+      expect(staleEmbed.paymentStatus, 'approved');
+
+      // The inverse is preserved: a not-yet-approved payment stays unsubmitted.
+      final pending = KycRequest.fromMap({
+        'id': '2',
+        'ticket_code': 'TNG-2',
+        'tango_profile_link': 'https://tango.me/u/2',
+        'register_type': 'email',
+        'register_value': 'a@b.com',
+        'status': 'pending',
+        'created_at': '2026-09-25T10:00:00.000Z',
+        'payment_required': true,
+        'payment_status': 'awaiting_submission',
+        'is_submitted': false,
+        'mvola_payments': const [],
+      });
+      expect(pending.isSubmitted, isFalse);
+      expect(pending.paymentStatus, 'awaiting_submission');
+    });
+
     test('KycRequest defaults to submitted when the server sends no state', () {
       final request = KycRequest.fromMap({
         'id': '1',

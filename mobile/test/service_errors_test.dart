@@ -100,6 +100,46 @@ void main() {
     });
   });
 
+  group('server submission state merge', () {
+    test('folds a well-formed state into the row', () {
+      final merged = mergeSubmissionState(
+        {'id': 't1', 'payment_required': true},
+        {'payment_status': 'approved', 'is_submitted': true},
+      );
+      expect(merged['payment_status'], 'approved');
+      expect(merged['is_submitted'], true);
+      expect(merged['id'], 't1');
+      expect(merged['payment_required'], true);
+    });
+
+    test('overrides a stale embedded fallback', () {
+      // The row already carries an embedded fallback; the server state wins.
+      final merged = mergeSubmissionState(
+        {'payment_required': true, 'is_submitted': false, 'payment_status': 'awaiting_submission'},
+        {'payment_status': 'approved', 'is_submitted': true},
+      );
+      expect(merged['is_submitted'], true);
+      expect(merged['payment_status'], 'approved');
+    });
+
+    test('leaves the row untouched when the state is missing or malformed', () {
+      final row = {'is_submitted': false, 'payment_status': 'awaiting_submission'};
+      expect(mergeSubmissionState(row, null), same(row));
+      expect(mergeSubmissionState(row, 'nope'), same(row));
+      expect(mergeSubmissionState(row, <String, dynamic>{}), same(row));
+      expect(mergeSubmissionState(row, {'is_submitted': 'yes'}), same(row));
+    });
+
+    test('accepts a partial state without inventing the missing field', () {
+      final merged = mergeSubmissionState(
+        {'is_submitted': false},
+        {'payment_status': 'approved'},
+      );
+      expect(merged['payment_status'], 'approved');
+      expect(merged['is_submitted'], false);
+    });
+  });
+
   group('exception surface', () {
     test('toString exposes the code for logging', () {
       const exception = KycServiceException('RATE_LIMITED', 'Slow down.');

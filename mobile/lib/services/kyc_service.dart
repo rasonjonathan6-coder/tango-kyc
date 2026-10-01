@@ -129,7 +129,25 @@ class SupabaseKycService implements KycService {
     if (row == null) {
       throw const KycServiceException('TICKET_NOT_FOUND', 'Request not found.');
     }
-    return KycRequest.fromMap(row);
+
+    // `is_submitted` / `payment_status` are derived server side by
+    // `kyc_submission_state`, which the client cannot call directly. They are
+    // fetched through the `mvola-payments` Edge Function (which proves ownership
+    // before deriving the state) and merged in, so the screen never infers the
+    // submission state from the embedded payment rows. A failure here degrades
+    // to the embedded fallback instead of failing the whole screen; the reply
+    // guard is still enforced server side by `user_post_message`.
+    var map = Map<String, dynamic>.from(row);
+    try {
+      final payload = await invokeFunction(_client, 'mvola-payments', {
+        'action': 'state',
+        'ticket_id': id,
+      });
+      map = mergeSubmissionState(map, payload['state']);
+    } catch (_) {
+      // Keep the embedded fallback.
+    }
+    return KycRequest.fromMap(map);
   }
 
   @override
@@ -303,6 +321,24 @@ class SupabaseAdminService implements AdminService {
     final payload = await invokeFunction(_client, 'admin-actions', {'action': action, ...extra});
     return parse(payload);
   }
+}
+
+/// Folds the server-derived submission state into a `kyc_requests` row map.
+///
+/// The state comes from `kyc_submission_state` (via the `mvola-payments` Edge
+/// Function) as `{ payment_status, is_submitted }`. Only well-formed values are
+/// written; anything else is ignored so the caller keeps its embedded fallback.
+/// Returns a new map, leaving the input untouched.
+Map<String, dynamic> mergeSubmissionState(Map<String, dynamic> row, Object? state) {
+  if (state is! Map) return row;
+  final status = state['payment_status'];
+  final submitted = state['is_submitted'];
+  if (status is! String && submitted is! bool) return row;
+  return {
+    ...row,
+    if (status is String) 'payment_status': status,
+    if (submitted is bool) 'is_submitted': submitted,
+  };
 }
 
 /// Invokes an Edge Function and unwraps its JSON body.

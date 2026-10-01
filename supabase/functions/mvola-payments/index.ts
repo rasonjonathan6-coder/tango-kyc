@@ -10,6 +10,7 @@
  *   start   - open, or return, the active payment for one of the caller's tickets
  *   submit  - confirm payment and supply the transaction reference
  *   mine    - the caller's own payments
+ *   state   - the derived submission state of one of the caller's tickets
  *
  * The amount, recipient number and USSD code always come from server-side
  * configuration. The client sends a ticket id and, at most, a reference; it can
@@ -19,7 +20,7 @@
  * ticket or payment belonging to somebody else.
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
-import { requireUser, userClient } from "../_shared/clients.ts";
+import { requireUser, serviceClient, userClient } from "../_shared/clients.ts";
 
 interface Body {
   action?: string;
@@ -90,6 +91,27 @@ Deno.serve(async (req) => {
         });
         if (error) throw translateDbError(error);
         return jsonResponse({ payment: data });
+      }
+
+      case "state": {
+        if (!payload.ticket_id) throw new AppError("TICKET_NOT_FOUND", "Missing ticket_id", 422);
+        // Ownership first: RLS only exposes the caller's own ticket, so a
+        // ticket that is not theirs answers TICKET_NOT_FOUND before any state
+        // is derived. `kyc_submission_state` is a SECURITY DEFINER function
+        // granted to service_role only, so it is called here, after the check.
+        const { data: ticket, error: ticketError } = await asUser
+          .from("kyc_requests")
+          .select("id")
+          .eq("id", payload.ticket_id)
+          .maybeSingle();
+        if (ticketError) throw translateDbError(ticketError);
+        if (!ticket) throw new AppError("TICKET_NOT_FOUND", "Request not found.", 404);
+
+        const { data, error } = await serviceClient().rpc("kyc_submission_state", {
+          p_ticket_id: payload.ticket_id,
+        });
+        if (error) throw translateDbError(error);
+        return jsonResponse({ state: data });
       }
 
       case "mine": {

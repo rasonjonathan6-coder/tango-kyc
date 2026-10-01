@@ -186,10 +186,15 @@ class KycRequest {
   final String? paymentStatus;
 
   factory KycRequest.fromMap(Map<String, dynamic> map) {
-    // The submission state is derived on the server when it is returned by the
-    // create function, and from the embedded payment rows on the read path. It
-    // is never taken from client-side mutable state.
+    // The submission state is derived on the server (`kyc_submission_state`)
+    // and returned as `payment_status` / `is_submitted`. Those fields are
+    // authoritative and are never overwritten here. The embedded payment rows
+    // are only a fallback for a payload that predates the server fields; a
+    // stale or partial embed must never override them, otherwise an approved
+    // payment is hidden from the UI and the reply composer is withheld even
+    // though the server would accept the reply.
     final embeddedPayments = map['mvola_payments'];
+    final paymentRequired = (map['payment_required'] as bool?) ?? false;
     String? paymentStatus = map['payment_status'] as String?;
     bool? isSubmitted = map['is_submitted'] as bool?;
     if (embeddedPayments is List) {
@@ -198,11 +203,10 @@ class KycRequest {
           .map((row) => row['status'] as String?)
           .whereType<String>()
           .toList();
-      paymentStatus = statuses.contains('approved')
+      paymentStatus ??= statuses.contains('approved')
           ? 'approved'
           : (statuses.isEmpty ? 'awaiting_submission' : statuses.first);
-      isSubmitted = !((map['payment_required'] as bool?) ?? false) ||
-          statuses.contains('approved');
+      isSubmitted ??= !paymentRequired || statuses.contains('approved');
     }
 
     return KycRequest(

@@ -146,6 +146,53 @@ void main() {
     expect(find.text('Payer avec MVola'), findsWidgets);
   });
 
+  testWidgets('an approved payment shows the composer even without a payment embed',
+      (tester) async {
+    // The server-derived state says the request is submitted, but the read path
+    // carries no `mvola_payments` embed. The composer must still be shown: the
+    // embed used to override the server state and hide it.
+    final approved = KycRequest.fromMap({
+      'id': 't1',
+      'ticket_code': 'TNG-KYC-t1',
+      'tango_profile_link': 'https://tango.me/x',
+      'register_type': 'email',
+      'register_value': 'a@example.com',
+      'status': 'pending',
+      'created_at': '2026-01-01T00:00:00.000Z',
+      'payment_required': true,
+      'payment_status': 'approved',
+      'is_submitted': true,
+    });
+    expect(approved.isSubmitted, isTrue);
+
+    final kyc = FakeKycService(requests: [approved]);
+    await tester.pumpWidget(_host(kyc, 't1'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, 'Écrire un message…'), findsOneWidget);
+    expect(find.text('Réponse bloquée'), findsNothing);
+  });
+
+  testWidgets('the welcome ticket stays without a composer', (tester) async {
+    final welcome = KycRequest(
+      id: 'w1',
+      ticketCode: 'TNG-KYC-w1',
+      status: KycStatus.pending,
+      tangoProfileLink: 'https://tango.me/x',
+      registerType: RegisterType.phone,
+      registerValue: 'WELCOME',
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    );
+    final kyc = FakeKycService(requests: [welcome]);
+    await tester.pumpWidget(_host(kyc, 'w1'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Réponse bloquée'), findsNothing);
+    expect(find.textContaining('Cette demande est fermée'), findsNothing);
+  });
+
   testWidgets('a PAYMENT_NOT_CONFIRMED answer flips the screen to blocked',
       (tester) async {
     final kyc = FakeKycService(requests: [_request('t1')]);
