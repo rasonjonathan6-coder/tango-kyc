@@ -128,7 +128,7 @@ class _MvolaPaymentScreenState extends State<MvolaPaymentScreen> {
   Future<void> _copy(String value, String label) async {
     await Clipboard.setData(ClipboardData(text: value));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label copied.')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label copié.')));
   }
 
   @override
@@ -142,7 +142,7 @@ class _MvolaPaymentScreenState extends State<MvolaPaymentScreen> {
           IconButton(
             onPressed: controller.loading ? null : () => controller.load(widget.ticketId),
             icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh',
+            tooltip: 'Actualiser',
           ),
         ],
       ),
@@ -270,7 +270,7 @@ class _InstructionsCard extends StatelessWidget {
                 style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             InfoRow(
-              label: 'Amount',
+              label: 'Montant',
               value: config.amountLabel,
               valueWidget: Text(
                 config.amountLabel,
@@ -281,7 +281,7 @@ class _InstructionsCard extends StatelessWidget {
               ),
             ),
             InfoRow(
-              label: 'MVola number',
+              label: 'Numéro MVola',
               value: config.recipientNumber,
               valueWidget: Row(
                 children: [
@@ -290,16 +290,16 @@ class _InstructionsCard extends StatelessWidget {
                         style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
                   ),
                   IconButton(
-                    onPressed: () => onCopy(config.recipientNumber, 'Number'),
+                    onPressed: () => onCopy(config.recipientNumber, 'Numéro'),
                     icon: const Icon(Icons.copy_rounded, size: 18),
-                    tooltip: 'Copy number',
+                    tooltip: 'Copier le numéro',
                     visualDensity: VisualDensity.compact,
                   ),
                 ],
               ),
             ),
             InfoRow(
-              label: 'USSD code',
+              label: 'Code USSD',
               value: config.ussdCode,
               valueWidget: Row(
                 children: [
@@ -308,9 +308,9 @@ class _InstructionsCard extends StatelessWidget {
                         style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
                   ),
                   IconButton(
-                    onPressed: () => onCopy(config.ussdCode, 'USSD code'),
+                    onPressed: () => onCopy(config.ussdCode, 'Code USSD'),
                     icon: const Icon(Icons.copy_rounded, size: 18),
-                    tooltip: 'Copy code',
+                    tooltip: 'Copier le code',
                     visualDensity: VisualDensity.compact,
                   ),
                 ],
@@ -409,13 +409,13 @@ class _PendingCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                InfoRow(label: 'Amount', value: payment.amountLabel),
-                InfoRow(label: 'MVola number', value: payment.recipientNumber),
-                InfoRow(label: 'USSD code', value: payment.ussdCode),
+                InfoRow(label: 'Montant', value: payment.amountLabel),
+                InfoRow(label: 'Numéro MVola', value: payment.recipientNumber),
+                InfoRow(label: 'Code USSD', value: payment.ussdCode),
                 if (payment.transactionReference != null)
-                  InfoRow(label: 'Reference', value: payment.transactionReference!),
+                  InfoRow(label: 'Référence', value: payment.transactionReference!),
                 if (payment.submittedAt != null)
-                  InfoRow(label: 'Submitted', value: formatDateTime(payment.submittedAt!)),
+                  InfoRow(label: 'Envoyé le', value: formatDateTime(payment.submittedAt!)),
               ],
             ),
           ),
@@ -460,9 +460,9 @@ class _PendingCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     LabeledField(
-                      label: 'MVola transaction reference',
+                      label: 'Référence de la transaction MVola',
                       controller: referenceController,
-                      hint: 'e.g. MV-123456789',
+                      hint: 'ex. MV-123456789',
                       errorText: referenceError,
                       enabled: !busy,
                       textInputAction: TextInputAction.next,
@@ -486,7 +486,7 @@ class _PendingCard extends StatelessWidget {
                               width: 16, height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.check_rounded, size: 19),
-                      label: Text(submitting ? 'Sending...' : 'Envoyer les détails du paiement'),
+                      label: Text(submitting ? 'Envoi…' : 'Envoyer les détails du paiement'),
                       style: FilledButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                     ),
                   ],
@@ -561,11 +561,11 @@ class _DecidedCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 10),
-            InfoRow(label: 'Amount', value: payment.amountLabel),
+            InfoRow(label: 'Montant', value: payment.amountLabel),
             if (payment.transactionReference != null)
-              InfoRow(label: 'Reference', value: payment.transactionReference!),
+              InfoRow(label: 'Référence', value: payment.transactionReference!),
             if (payment.reviewedAt != null)
-              InfoRow(label: 'Reviewed', value: formatDateTime(payment.reviewedAt!)),
+              InfoRow(label: 'Examiné le', value: formatDateTime(payment.reviewedAt!)),
           ],
         ),
       ),

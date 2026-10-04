@@ -40,7 +40,7 @@ dependencies:
   # Supabase: auth (email/password + Google OAuth), PostgREST reads and
   # Edge Function invocation. Only the anon key is used here; the service-role
   # key exists exclusively inside Edge Functions.
-  supabase_flutter: ^2.10.3
+  supabase_flutter: 2.18.0
 
   # Persists the auth session securely across app restarts.
   flutter_secure_storage: ^9.2.4
