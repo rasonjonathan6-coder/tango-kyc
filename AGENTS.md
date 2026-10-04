@@ -607,6 +607,67 @@ When a user replies in-app, `reply-to-ticket` emails the support mailbox through
 a retried call is suppressed while a genuinely new message is always sent.
 
 
+## Email threading rule: USER -> SOCIÉTÉ (KYC conversation) — 2026-10-01
+
+Gmail files a message under an existing conversation from **two** things
+together: the threading headers (`In-Reply-To` / `References`) **and** the
+subject. Both must stay consistent with the KYC request conversation; keeping
+only one of them is not enough, and a mismatch silently starts a **new**
+conversation. This rule applies to every USER -> SOCIÉTÉ email, in particular
+the in-app user message sent by `sendUserMessageToSupport`.
+
+1. **The subject must stay the request's subject.** The USER -> SOCIÉTÉ message
+   reuses the original request subject, prefixed with `Re: `
+   (`userMessageToSupportEmailContent` builds
+   `Re: ${adminRequestEmailContent(ticket).subject}`). Do **not** introduce an
+   independent generic subject such as
+   `Nouveau message d'un utilisateur - vérification de compte`: a distinct
+   subject breaks the thread even when the headers are correct.
+
+2. **Thread with the real headers, never invented ones.** The message carries
+   `In-Reply-To` and `References`, produced by `threadingHeaders(ticket)`.
+
+3. **`In-Reply-To` points at a genuine Message-ID.** It must reference the
+   actual RFC `Message-ID` of the last COMPANY -> USER email that belongs to the
+   KYC conversation concerned — the value stored in `last_outbound_message_id`.
+
+4. **`last_outbound_message_id` is the request email's anchor.** A COMPANY -> USER
+   confirmation that does **not** belong to the request conversation (e.g. the
+   "Votre demande … a bien été envoyée" submission mail from
+   `sendUserRequestSubmittedEmail`) must **not** overwrite this anchor.
+   Overwriting it makes `In-Reply-To` point at a message the société never
+   received, so Gmail starts a new conversation.
+
+5. **Every function that shares `_shared/email-provider.ts` must honour this
+   distinction.** Before adding or changing any `record_outbound_email` call,
+   ask whether the new email should really become the threading anchor of the
+   KYC conversation. Only an email the société is expected to reply to belongs
+   on the anchor.
+
+6. **Never fabricate a `Message-ID`** from a ticket uuid, a user uuid, a
+   `ticket_code`, or a reply token. `asMessageId` only accepts a value that looks
+   like a real `Message-ID` (it must contain `@`); a provider uuid (Resend) is
+   never wrapped into a false one.
+
+7. **If no usable real `Message-ID` exists, send no threading header at all.**
+   `threadingHeaders` returns `undefined` rather than emitting a fake
+   `In-Reply-To` / `References`.
+
+8. **Any future change to `email-provider.ts` must check, at the same time:**
+   subject; `Message-ID`; `In-Reply-To`; `References`; `last_outbound_message_id`;
+   `email_thread_id`; the message type/direction; the effect on COMPANY -> USER;
+   and the effect on USER -> COMPANY.
+
+9. **Both halves of Gmail threading must be preserved:** the threading headers
+   **and** subject/conversation consistency.
+
+Context of the bug this rule fixes (2026-10-01). The threading break had **two**
+causes: (A) the USER -> SOCIÉTÉ message used a subject different from the request
+email; (B) `last_outbound_message_id` was overwritten by a COMPANY -> USER
+confirmation that was not part of the request conversation. The fix shipped as
+`reply-to-ticket` **v5**, `admin-actions` **v48**, `email-webhook` **v45**
+(unchanged). Do not change these versions as part of documentation work.
+
 ## Finalization pass — 2026-10-03
 
 Continuation of the "final testable version" work. What was verified and built:
