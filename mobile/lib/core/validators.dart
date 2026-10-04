@@ -19,7 +19,10 @@ class Validators {
 
   static final RegExp _urlPattern = RegExp(r'^https?://[^\s/]+\.[^\s/]+', caseSensitive: false);
   static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$');
-  static final RegExp _phonePattern = RegExp(r'^\+?[0-9]{7,15}$');
+
+  /// Madagascar mobile numbers accepted for the registered number: exactly ten
+  /// digits, starting with one of the operator prefixes 032/033/034/037/038.
+  static final RegExp _registerPhonePattern = RegExp(r'^(032|033|034|037|038)[0-9]{7}$');
 
   /// Collapses whitespace the way the backend does before storing a value.
   static String normalize(String value) => value.trim().replaceAll(RegExp(r'\s+'), ' ');
@@ -49,8 +52,8 @@ class Validators {
     // Strip formatting characters the way the backend does.
     final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
     if (digits.isEmpty) return 'Saisissez une adresse email ou un numéro valide.';
-    if (!_phonePattern.hasMatch(input.replaceAll(RegExp(r'[^0-9+]'), ''))) {
-      return 'Saisissez un numéro de téléphone valide (7 à 15 chiffres).';
+    if (!_registerPhonePattern.hasMatch(digits)) {
+      return 'Veuillez vérifier votre numéro.';
     }
     return null;
   }
@@ -124,7 +127,7 @@ class ErrorMessages {
       'PROFILE_LINK_TOO_LONG': 'Ce lien de profil est trop long.',
       'REGISTER_REQUIRED': 'Saisissez l’adresse email ou le numéro enregistré.',
       'REGISTER_EMAIL_INVALID': 'Saisissez une adresse email valide.',
-      'REGISTER_PHONE_INVALID': 'Saisissez un numéro de téléphone valide.',
+      'REGISTER_PHONE_INVALID': 'Veuillez vérifier votre numéro.',
       'RATE_LIMITED': 'Vous avez déjà envoyé une demande récemment. Patientez quelques minutes.',
       'RATE_LIMITED_DAILY': 'Vous avez atteint le nombre maximum de demandes pour aujourd’hui.',
       'FORBIDDEN': 'Vous n’êtes pas autorisé à effectuer cette action.',
@@ -138,6 +141,11 @@ class ErrorMessages {
       'EMAIL_DELIVERY_FAILED':
           'Votre demande a été enregistrée, mais l’email de confirmation n’a pas pu être envoyé. Le support a été prévenu.',
       'SERVICE_NOT_CONFIGURED': 'Ce service est momentanément indisponible. Réessayez plus tard.',
+      // Assistant (chatbot)
+      'LLM_NOT_CONFIGURED': 'L’assistant automatique n’est pas disponible pour le moment.',
+      'LLM_UPSTREAM_ERROR': 'L’assistant est momentanément indisponible. Réessayez plus tard.',
+      'LLM_TIMEOUT': 'L’assistant met plus de temps que prévu. Patientez un instant puis réessayez.',
+      'METHOD_NOT_ALLOWED': 'Action non autorisée.',
       // MVola
       'PAYMENT_NOT_FOUND': 'Paiement introuvable.',
       'PAYMENT_ALREADY_REVIEWED': 'Ce paiement a déjà été examiné.',
@@ -172,7 +180,7 @@ class ErrorMessages {
       return 'Mot de passe incorrect.';
     }
     if (lower.contains('email not confirmed')) {
-      return 'Confirmez votre adresse email avant de vous connecter.';
+      return 'Confirmez votre adresse email : ouvrez le lien reçu, ou connectez-vous avec un code.';
     }
       // OTP verification failures. Supabase reports both an expired code and a
       // wrong code as "token has expired or is invalid", and it must not disclose
@@ -187,7 +195,11 @@ class ErrorMessages {
       return 'Email invalide.';
     }
     if (lower.contains('password should be at least')) return 'Mot de passe trop court.';
-    if (lower.contains('rate limit') || lower.contains('too many requests')) {
+    // Supabase reports its email quota as the `over_email_send_rate_limit` code,
+    // which carries an underscore and would otherwise miss the spaced copy below.
+    if (lower.contains('rate_limit') ||
+        lower.contains('rate limit') ||
+        lower.contains('too many requests')) {
       return 'Trop de tentatives. Patientez un instant puis réessayez.';
     }
     if (lower.contains('network') || lower.contains('socket') || lower.contains('connection')) {

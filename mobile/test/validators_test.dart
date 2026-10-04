@@ -53,15 +53,37 @@ void main() {
       expect(Validators.validateRegisterValue('@example.com'), isNotNull);
     });
 
-    test('accepts phone numbers in several notations', () {
-      expect(Validators.validateRegisterValue('+261341234567'), isNull);
-      expect(Validators.validateRegisterValue('+261 34 12 345 67'), isNull);
-      expect(Validators.validateRegisterValue('0341234567'), isNull);
-      expect(Validators.validateRegisterValue('(034) 123-4567'), isNull);
+    test('accepts ten-digit numbers with every allowed prefix', () {
+      for (final prefix in ['032', '033', '034', '037', '038']) {
+        expect(Validators.validateRegisterValue('${prefix}1234567'), isNull,
+            reason: '$prefix must be accepted');
+      }
     });
 
-    test('rejects a phone number that is too short', () {
+    test('accepts the number even when formatted with spaces or dashes', () {
+      expect(Validators.validateRegisterValue('034 67 54 333'), isNull);
+      expect(Validators.validateRegisterValue('034-675-4333'), isNull);
+      expect(Validators.validateRegisterValue('(034) 675-4333'), isNull);
+    });
+
+    test('rejects a number that is not ten digits', () {
+      expect(Validators.validateRegisterValue('034675433'), isNotNull); // nine
+      expect(Validators.validateRegisterValue('03467543330'), isNotNull); // eleven
       expect(Validators.validateRegisterValue('12345'), isNotNull);
+    });
+
+    test('rejects a number with a disallowed prefix', () {
+      expect(Validators.validateRegisterValue('0311234567'), isNotNull);
+      expect(Validators.validateRegisterValue('0351234567'), isNotNull);
+      expect(Validators.validateRegisterValue('0361234567'), isNotNull);
+      expect(Validators.validateRegisterValue('0391234567'), isNotNull);
+    });
+
+    test('shows the "veuillez vérifier votre numéro" message', () {
+      expect(Validators.validateRegisterValue('0311234567'),
+          'Veuillez vérifier votre numéro.');
+      expect(Validators.validateRegisterValue('12345'),
+          'Veuillez vérifier votre numéro.');
     });
   });
 
@@ -76,7 +98,7 @@ void main() {
     test('passes when both fields are valid', () {
       final result = Validators.validateRequestForm(
         profileLink: 'https://tango.me/user/1',
-        registerValue: '+261341234567',
+        registerValue: '0341234567',
       );
       expect(result.isValid, isTrue);
     });

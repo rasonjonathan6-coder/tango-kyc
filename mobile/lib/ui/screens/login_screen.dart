@@ -69,14 +69,29 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /// Starts the passwordless code flow for the address typed above.
   ///
-  /// The email field doubles as the destination, so the user is nudged to fill
-  /// it rather than being shown an empty second form.
+  /// The code is requested *before* navigating, so a rejected request — rate
+  /// limit, mailer not configured, no connection — is reported on the form the
+  /// user is already on, instead of behind a code-entry screen that could never
+  /// be satisfied. The email field doubles as the destination, so the user is
+  /// nudged to fill it rather than being shown an empty second form.
   Future<void> _startCodeSignIn() async {
     final email = Validators.normalize(_emailController.text);
     if (email.isEmpty || Validators.validateEmail(email) != null) {
       _showError('Saisissez d’abord votre adresse email ci-dessus.');
       return;
     }
+
+    final auth = context.read<AuthController>();
+    final sent = await auth.sendEmailOtp(
+      email: email,
+      purpose: EmailOtpPurpose.signup,
+    );
+    if (!mounted) return;
+    if (!sent) {
+      _showError(ErrorMessages.from(auth.lastError ?? ''));
+      return;
+    }
+
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) =>

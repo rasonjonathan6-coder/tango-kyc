@@ -19,6 +19,7 @@ import 'package:tango_kyc_verification/models/models.dart';
 import 'package:tango_kyc_verification/services/auth_service.dart';
 import 'package:tango_kyc_verification/state/admin_controller.dart';
 import 'package:tango_kyc_verification/state/admin_mvola_controller.dart';
+import 'package:tango_kyc_verification/state/assistant_controller.dart';
 import 'package:tango_kyc_verification/state/auth_controller.dart';
 import 'package:tango_kyc_verification/state/kyc_controller.dart';
 import 'package:tango_kyc_verification/state/mvola_controller.dart';
@@ -27,6 +28,7 @@ import 'package:tango_kyc_verification/state/settings_controller.dart';
 import 'package:tango_kyc_verification/ui/theme/app_theme.dart';
 import 'package:tango_kyc_verification/ui/screens/about_screen.dart';
 import 'package:tango_kyc_verification/ui/screens/account_info_screen.dart';
+import 'package:tango_kyc_verification/ui/screens/assistant_screen.dart';
 import 'package:tango_kyc_verification/ui/screens/forgot_password_screen.dart';
 import 'package:tango_kyc_verification/ui/screens/help_support_screen.dart';
 import 'package:tango_kyc_verification/ui/screens/home_screen.dart';
@@ -73,6 +75,7 @@ Map<String, Widget Function()> _screens() {
     'Settings': () => const SettingsScreen(),
     'Security': () => const SecurityScreen(),
     'HelpSupport': () => const HelpSupportScreen(),
+    'Assistant': () => const AssistantScreen(),
     'SupportChat': () => const SupportChatScreen(),
     'Language': () => const LanguageScreen(),
     'About': () => const AboutScreen(),
@@ -111,6 +114,8 @@ Future<Widget> _host(Widget child, Brightness brightness) async {
           value: AdminController(FakeAdminService())),
       ChangeNotifierProvider<AdminMvolaController>.value(
           value: AdminMvolaController(FakeAdminMvolaService())),
+      ChangeNotifierProvider<AssistantController>.value(
+          value: AssistantController(FakeAssistantService())),
       ChangeNotifierProvider<SettingsController>(
           create: (_) => SettingsController(const FlutterSecureStorage())),
     ],
@@ -200,7 +205,7 @@ double _contrast(Color a, Color b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/// The three auth screens paint the dark login artwork in BOTH brightnesses
+/// The auth screens paint the dark login artwork in BOTH brightnesses
 /// (see `AuthBackground`), so in light mode they are NOT judged against
 /// [AppColors.canvasLight]. This is the artwork behind the copy expressed as one
 /// worst-case surface: its content region (left 60%, the part the scrim holds)
@@ -209,7 +214,10 @@ double _contrast(Color a, Color b) {
 const Color _authArtworkCanvas = Color(0xFF353535);
 
 bool _isAuth(String screen) =>
-    screen == 'Login' || screen == 'Register' || screen == 'ForgotPassword';
+    screen == 'Login' ||
+    screen == 'Register' ||
+    screen == 'ForgotPassword' ||
+    screen == 'Otp';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

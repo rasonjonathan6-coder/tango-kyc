@@ -7,8 +7,6 @@
 /// Edge Function secrets and must never be present in this application.
 library;
 
-import 'dart:io';
-
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AppConfig {
@@ -53,13 +51,16 @@ class AppConfig {
 
   /// Loads the bundled env file when present. A missing file is not fatal
   /// because `--dart-define` values may have been supplied instead.
+  ///
+  /// The load is wrapped in a broad catch rather than an `on FileSystemException`
+  /// so the file can stay platform-neutral: importing `dart:io` here would pull
+  /// it into the web build, where it does not exist. A malformed or missing file
+  /// both fall through to the `--dart-define` values.
   static Future<void> load() async {
     try {
       await dotenv.load(fileName: 'assets/env');
-    } on FileSystemException {
-      // No bundled env file: rely on --dart-define.
     } catch (_) {
-      // Malformed file: surface at first use rather than crashing at startup.
+      // No bundled env file, or a malformed one: rely on --dart-define.
     }
   }
 

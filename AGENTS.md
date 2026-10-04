@@ -421,6 +421,90 @@ Notes:
 - Published for download by copying it to /workspace/public_apk/ and serving that
   directory: python3 -m http.server 12000 --bind 0.0.0.0.
 
+## Supabase build config must be injected, or the app boots blank — 2026-10-01
+
+`AppConfig` (`mobile/lib/config/app_config.dart`) reads `SUPABASE_URL` and
+`SUPABASE_ANON_KEY` from **two** sources only, in this order: `String.fromEnvironment`
+(`--dart-define`) first, then the bundled `assets/env` loaded by `flutter_dotenv`.
+There is **no** `.env`, no root file, no runtime lookup, and `mobile/assets/env`
+is gitignored and normally absent — only `assets/env.example` (placeholders) is
+tracked. So a plain `flutter build apk --release` / `--debug` embeds **neither**
+value and the app stops at `_ConfigurationMissingApp`:
+
+    Application configuration required — SUPABASE_URL / SUPABASE_ANON_KEY are not set
+
+`main.dart` checks `AppConfig.isConfigured` **before** `Supabase.initialize`, so
+this screen also hides any Firebase/FCM problem until it is fixed.
+
+Build with the values passed explicitly (both are public client values; the anon
+key is RLS-protected, never use the service-role key here):
+
+    cd mobile && flutter build apk --release \
+      --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+      --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+
+Verify the values really landed **without printing them**: unzip the artifact and
+`grep -qF "$SUPABASE_URL"` against `strings` of `assets/flutter_assets/kernel_blob.bin`
+(debug) or `lib/<abi>/libapp.so` (release). Do not pattern-match a hardcoded JWT
+prefix — `strings` splits the token and it reads as a false MISSING.
+
+Two more traps seen in this session:
+- The release build **silences `debugPrint`**, so `[fcm]` logs are invisible
+  there. Use the **debug** APK to observe FCM on a device.
+- This sandbox's toolchain is at `/opt/flutter` and `/opt/android-sdk` (not
+  `/workspace/sdk/...`); export `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`
+  and `ANDROID_HOME=/opt/android-sdk`, and put `build-tools/<ver>` on PATH for
+  `aapt2`/`apksigner`.
+
+## Recovering the app in a fresh conversation — 2026-10-01
+
+A new conversation starts with an empty `/workspace/project`, so the source and
+the signing material have to be brought back before anything can be built or
+served. The source is on GitHub; the keystore is not.
+
+- Source of truth: `github.com/<owner>/tango-kyc`, branch `main`. `git clone`
+  (or `git fetch origin main && git checkout -B main origin/main`) is enough.
+- Signing material is gitignored and lives only in the sandbox that built the
+  APK: `mobile/android/app/upload-keystore.jks` (alias `tango-kyc-upload`,
+  certificate SHA-256 `5ae5f7a4...`) plus `mobile/android/key.properties`. The
+  keystore has been copied into this workspace, and `key.properties` was written
+  from the `TANGO_KEYSTORE_PASSWORD` / `TANGO_KEY_PASSWORD` secrets. Never
+  regenerate the keystore: a different key breaks upgrades for installed users.
+- Rebuild with `flutter build apk --release`, then copy the artifact to
+  `/workspace/public_apk/` and serve it on port 12000. The reachable URL is
+  `https://work-1-<runtime-host>/<file>.apk` (work-1 maps to 12000, work-2 to
+  12001). The `<runtime-host>` changes every session, so a previously shared APK
+  link stops working as soon as its sandbox is gone — that is why an old link
+  can 502 while the file still exists elsewhere.
+- A still-running sandbox keeps its build output. Fetch a file straight from it
+  with `GET {conversation_url base}/api/file/download?path=<abs path>` and the
+  conversation's `X-Session-API-Key`, which `GET /api/v1/app-conversations?ids=`
+  returns. The path must be in the query string; a path segment returns 404.
+
+### Reinstalling the wiped toolchain — 2026-10-01
+
+`/opt` (Flutter, Android SDK) and the JDK are gone on a fresh sandbox. Reinstall
+before building:
+
+    sudo apt-get install -y openjdk-21-jdk-headless
+    # Android cmdline-tools must live in a writable dir; /opt is root-owned and
+    # the agent cannot execute the SDK binaries from there.
+    mkdir -p /workspace/android-sdk/cmdline-tools
+    # unzip commandlinetools-linux-<latest>_latest.zip, move to .../cmdline-tools/latest
+    sdkmanager --install "platform-tools" "platforms;android-36" \
+      "build-tools;36.0.0" "ndk;28.2.13676358"
+
+The platform/build-tools/NDK versions must match what
+`flutter.compileSdkVersion` / `flutter.ndkVersion` report for the installed
+Flutter, or the Gradle build fails on a missing platform. Point
+`android/local.properties` `sdk.dir` at the new SDK and export `JAVA_HOME`.
+
+The exact Supabase build config (URL + publishable/anon key) is recoverable from
+an already-built APK without retyping it: the debug artifact embeds both strings
+in `assets/flutter_assets/kernel_blob.bin` (the release one in `lib/<abi>/libapp.so`).
+This is the same public, RLS-protected pair the app shipped with — never a secret
+key. Pass them back through `--dart-define`; do not commit them.
+
 ## Firebase Android config — 2026-09-28
 
 `mobile/android/app/google-services.json` is the **real** config for the
@@ -521,3 +605,170 @@ assignment raised `query returned more than one row`.
 When a user replies in-app, `reply-to-ticket` emails the support mailbox through
 `sendUserMessageToSupport`; the idempotency key is the stored message row id, so
 a retried call is suppressed while a genuinely new message is always sent.
+
+
+## Finalization pass — 2026-10-03
+
+Continuation of the "final testable version" work. What was verified and built:
+
+- `icone.png` is **still absent** from the repository, its git history (all
+  branches) and the whole filesystem. Feature #9/#10 (replace the launcher icon
+  with `icone.png`) therefore remains **NOT DONE** by design: the brief says
+  "cherche d'abord le fichier réel, ne crée pas une fausse icône". The only
+  image assets present are the brand marks (`logo_transparent.png`,
+  `logo_home_cropped.png`) and unrelated screenshots. The launcher icon is still
+  the Flutter template default (byte-identical to the SDK's `ic_launcher.png`),
+  and the notification glyph is the intentional monochrome `ic_stat_tango`
+  (Android discards colour for status-bar icons, so a full-colour logo would
+  render as a white square — the current vector is correct).
+- Chatbot hardening: `_shared/chatbot.ts` now (a) documents Tango.me explicitly,
+  (b) forbids disclosing any email/contact in the system prompt, and (c) the
+  `replyLeaksInternals` backstop rejects **any** email address. Deno suite:
+  18/18 chatbot tests, 192/192 overall.
+- New French error strings for `LLM_NOT_CONFIGURED` / `LLM_UPSTREAM_ERROR` /
+  `METHOD_NOT_ALLOWED` in `lib/core/validators.dart`.
+- Verified as already implemented and correct: OTP login flow (8-digit code,
+  resend + cooldown), robust startup (`_SupabaseUnavailableApp`, auth-stream
+  `onError`, capped profile load, splash floor+ceiling), clickable links
+  (`url_detector.dart` + `LinkifiedText`), read-only request detail (no
+  composer), dark mode ON/OFF persisted via `SettingsController`, and the
+  assistant Edge Function `chat-assistant` (provider key stays server-side).
+- Flutter: `flutter analyze` clean, `flutter test` 486/486.
+
+### Building and serving the final APK (this sandbox)
+
+    export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+    export ANDROID_HOME=/workspace/android-sdk ANDROID_SDK_ROOT=$ANDROID_HOME
+    export PATH=/workspace/flutter/bin:$JAVA_HOME/bin:$PATH
+    cd mobile && flutter pub get
+    SUPABASE_URL=$(cat /tmp/sb_url) SUPABASE_ANON_KEY=$(cat /tmp/sb_key) \
+      flutter build apk --release \
+      --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+      --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+
+The two public build values (project ref `hbvjpawnszzcbcjmbkuf` and the anon
+key) are recoverable from any prior APK: extract `lib/arm64-v8a/libapp.so` and
+grep for `https://<ref>.supabase.co` and the first `eyJ…` JWT (payload role is
+`anon`). They are public, RLS-protected client values — never a secret key.
+
+Artifacts are published on the two work ports:
+- `https://work-1-<runtime-host>/tango-kyc-final.apk` (port 12000, APK download)
+- `https://work-2-<runtime-host>/` (port 12001, web build)
+- The web build also carries `/tango-kyc-final.apk` (copied into `build/web/`).
+The `<runtime-host>` changes every session — an old shared link 502s once its
+sandbox is gone, even though the file still exists. This is why the previous
+link stopped working.
+
+### Launcher icon
+
+The real source is the repository file
+`377FB271-870A-4503-BA19-0541DA3D7DE6.png` (1254x1254 RGB, white background),
+added on `origin/main` in commit `fc32e19`. It is the only icon source: do not
+redraw or substitute it. From it, `mobile/android/app/src/main/res/` carries:
+
+- `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png` — legacy square icon
+  (48/72/96/144/192), a straight LANCZOS downscale of the whole image;
+- `mipmap-{…}dpi/ic_launcher_foreground.png` — adaptive foreground
+  (108/162/216/324/432), the content cropped to its bbox, near-white made
+  transparent, the logo centred at ~62% of the 108dp canvas;
+- `mipmap-anydpi-v26/ic_launcher.xml` — adaptive icon (background + foreground);
+- `values/ic_launcher_background.xml` — `#FDFDFD`, sampled from the corners.
+
+`AndroidManifest.xml` sets both `android:icon` and `android:roundIcon` to
+`@mipmap/ic_launcher`. The notification icon stays the monochrome vector
+`drawable/ic_stat_tango` (a launcher photo is unusable as a status-bar icon).
+
+To verify what actually shipped: `aapt2 dump resources` on the APK maps each
+density to a `res/*.png`; those files are pixel-identical to the generated
+sources. `unzip -l` will not show them — AAPT2 compiles resources into
+`resources.arsc`, so the PNGs live under obfuscated `res/` names.
+
+### Known production gap: chat-assistant is not deployed
+
+As of this pass, `POST /functions/v1/chat-assistant` returns HTTP 404
+`NOT_FOUND` on the production project, while `create-kyc-request`,
+`mvola-payments` and `admin-actions` return 401 (deployed, auth-guarded). The
+assistant is a signed-in feature, so its cost cannot be driven anonymously; the
+app degrades gracefully (an error is shown, no crash). Deploy it with
+`supabase functions deploy chat-assistant` and set a provider key
+(`LLM_API_KEY` or a provider-specific one) as an Edge Function secret. Do not
+deploy from here without explicit instruction.
+
+### The request detail screen: the reply composer is payment-gated
+
+`mobile/lib/ui/screens/request_details_screen.dart` is no longer strictly
+read-only. It pins a footer below the conversation: a composer (a `LabeledField`
+plus a `GradientButton` "Envoyer") when `_canReply` is true, otherwise the
+read-only explanation. `_canReply` is true only when:
+
+- the synthetic welcome ticket (`register_value == 'WELCOME'`) never shows one;
+- a closed ticket never shows one;
+- a request with `paymentRequired` whose payment is not approved
+  (`isSubmitted` false) stays read-only, with the notice "La réponse sera
+  disponible après confirmation de votre paiement."
+
+The gate is UX only. The authoritative rule is `public.user_post_message`
+(migration `20260930000200_gate_user_reply_on_payment.sql`), which re-derives
+`is_submitted` inside the same `select ... for update` and raises
+`PAYMENT_NOT_CONFIRMED` otherwise; the `reply-to-ticket` Edge Function only
+forwards to it. `PAYMENT_NOT_CONFIRMED` is mapped in `core/validators.dart` and
+surfaced as a SnackBar, then the screen reloads so it reflects the server state.
+`mobile/test/ticket_reply_test.dart` pins this contract — update it with any
+change to the composer rule.
+
+### APK delivery: the download servers are ephemeral
+
+The shared `work-1` / `work-2` URLs are only alive while a
+`python3 -m http.server` is running in `/workspace/public_apk`. After a restart
+the old link 404s; relaunch both ports (12000 and 12001) and re-copy the built
+APK to `tango-kyc-final.apk`, then refresh `tango-kyc-final.apk.sha256`
+(`sha256sum`). The SHA-256 must match the file actually served.
+
+The host name in the URL is itself session-specific: it embeds the runtime id
+(e.g. `work-1-<runtime>.prod-runtime.all-hands.dev`) and changes when the
+environment is recreated, so a previously shared link can 404 even while the
+server runs. Always build the link from the runtime's current `work-1`/`work-2`
+host and confirm it with a `HEAD` request before sharing. `tango-kyc-final.apk`
+is the release build of `main` and must stay byte-identical to
+`mobile/build/app/outputs/flutter-apk/app-release.apk`.
+
+### Notification routing: the form address never decides the destination
+
+Two outbound mails leave the system, and neither destination may come from the
+KYC form. `register_value` (`tango_registration_email`) stays a request datum
+that is displayed in the request, and nothing else.
+
+- The société/support notification goes to `supportRecipient()`, read from
+  `KYC_SUPPORT_EMAIL`, then `KYC_RECIPIENT_EMAIL`, then the legacy
+  `ADMIN_KYC_RECIPIENT`. There is no fallback to `ADMIN_EMAIL`: an unconfigured
+  deployment throws `KYC_SUPPORT_EMAIL_NOT_CONFIGURED` rather than mailing KYC
+  data to the wrong mailbox.
+- Every user-facing notification (submission confirmation, admin reply, inbound
+  email reply) goes to the account address, resolved server side by
+  `accountEmail(kyc_requests.user_id)` from `profiles.email` (kept in sync with
+  `auth.users.email` by `on_auth_user_created`). `userReplyRecipient` accepts
+  only that account email, so the form value cannot influence it. A user whose
+  account has no address is never mailed: no address is invented.
+
+`supabase/functions/tests/reply_recipient_test.ts` and
+`notification_recipient_test.ts` pin these rules; update them with any change.
+
+### Société email format and the registered-number rule
+
+`adminRequestEmailContent` (`_shared/email-provider.ts`) is the only generator
+of the société email. Its subject is exactly
+`Manual KYC Verification request - Profil Creator: (<profile link>)`, where the
+link is the request's own `tango_profile_link` (never a fixed value). The body
+lists only the field the user actually supplied: `Register email:` for an email
+registration or `Register number:` for a number, never both and never `null`.
+The ticket code (`TNG-KYC-…`), the ticket uuid, `Ticket ID`, and the payment
+block stay out of both the subject and the body; the code remains in the
+database for reply correlation via the tokenised Reply-To and thread ids.
+
+The registered number (the KYC form value, **not** the MVola payer number,
+which is unchanged) must be exactly ten digits starting with 032/033/034/037/038.
+The rule lives in `_shared/register.ts` (`isValidRegisterNumber`) and
+`mobile/lib/core/validators.dart`, and the user-facing message is
+`Veuillez vérifier votre numéro.` (`REGISTER_PHONE_INVALID`). Tests:
+`tests/register_number_test.ts`, `tests/submission_email_test.ts`,
+`mobile/test/validators_test.dart`.

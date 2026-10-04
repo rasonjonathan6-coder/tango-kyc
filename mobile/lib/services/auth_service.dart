@@ -7,6 +7,7 @@ library;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/app_config.dart';
+import '../core/otp_log.dart';
 import '../models/models.dart';
 
 /// Result of consuming an OAuth or password-recovery deep link.
@@ -174,42 +175,76 @@ class SupabaseAuthService implements AuthService {
   /// (unconfirmed) user, and a recovery request must never mint an account for an
   /// address that has none. Supabase still answers 200 either way, which also
   /// avoids leaking whether an address is registered.
+  ///
+  /// Sending must never leave a session behind. `signInWithOtp` is sessionless
+  /// today, but if a stored session is still live the request runs under that
+  /// user's token and Supabase would mail *them*, not [email]; signing out first
+  /// makes the request anonymous again. It also guarantees the screen that just
+  /// asked for a code is the one the root gate keeps showing.
   @override
-  Future<void> sendEmailOtp(String email, EmailOtpPurpose purpose) =>
-      _auth.signInWithOtp(
+  Future<void> sendEmailOtp(String email, EmailOtpPurpose purpose) async {
+    otpStartSend();
+    try {
+      if (_auth.currentSession != null) {
+        await _auth.signOut();
+      }
+      await _auth.signInWithOtp(
         email: email,
         shouldCreateUser: false,
       );
+      otpSendSucceeded();
+    } catch (error) {
+      otpSendFailed(error);
+      rethrow;
+    }
+  }
 
+  /// Exchanges a code for a session. Supabase answers both an expired and a
+  /// wrong code with the same rejection, so the failure is only recorded for
+  /// diagnostics and then re-thrown for `ErrorMessages.from` to translate.
   @override
   Future<void> verifyEmailOtp({
     required String email,
     required String token,
     required EmailOtpPurpose purpose,
-  }) =>
-      _auth.verifyOTP(
+  }) async {
+    try {
+      await _auth.verifyOTP(
         email: email,
         token: token,
         type: otpTypeFor(purpose),
       );
+    } catch (error) {
+      otpVerifyRejected(error);
+      rethrow;
+    }
+  }
 
-  /// Re-sends the pending email for [purpose].
+  /// Re-sends the email for [purpose].
   ///
-  /// This must never call [sendEmailOtp]: `signInWithOtp` mints a *new* PKCE
-  /// code verifier and overwrites the stored one, which breaks every link that
-  /// was already emailed (`bad_code_verifier` on exchange). Re-sending through
-  /// `resend` uses the server's existing token instead and leaves any pending
-  /// verification code untouched.
+  /// A sign-in code was minted by `signInWithOtp` (the `/otp` endpoint, rendered
+  /// through the *magic link* template) and never by a password-reset request, so
+  /// `resend(type: signup)` has no pending signup token to re-send: on a confirmed
+  /// account it answers 200 while mailing nothing. The only endpoint that can mail
+  /// another code for an existing account is `signInWithOtp` itself, so the code
+  /// flow deliberately goes back through it. No deep link is in flight for this
+  /// flow, so replacing the stored code verifier is harmless here.
   ///
-  /// `signup` maps to `OtpType.signup`; `recovery` maps to `OtpType.recovery`,
-  /// which re-sends the link/code minted by the password-reset request. The
-  /// project's per-hour email limit still applies.
+  /// The recovery path is untouched: `resend` uses the server's existing token and
+  /// never calls [sendEmailOtp], so it cannot overwrite the PKCE code verifier a
+  /// pending recovery link depends on. The project's per-hour email limit still
+  /// applies to both paths.
   @override
-  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) => _auth.resend(
-        type: purpose == EmailOtpPurpose.signup ? OtpType.signup : OtpType.recovery,
-        email: email,
-        emailRedirectTo: AppConfig.oauthRedirectUrl,
-      );
+  Future<void> resendEmailOtp(String email, EmailOtpPurpose purpose) async {
+    if (purpose == EmailOtpPurpose.signup) {
+      return sendEmailOtp(email, purpose);
+    }
+    await _auth.resend(
+      type: OtpType.recovery,
+      email: email,
+      emailRedirectTo: AppConfig.oauthRedirectUrl,
+    );
+  }
 
   @override
   Future<void> signOut() => _auth.signOut();

@@ -11,12 +11,19 @@
  * Ownership, ticket code, status and rate limiting are all decided server side.
  */
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
+import { isValidRegisterNumber } from "../_shared/register.ts";
 import { requireUser, serviceClient } from "../_shared/clients.ts";
 
 
 interface RequestBody {
   tango_profile_link?: unknown;
   register_value?: unknown;
+}
+
+function assertRegisterNumber(registerValue: string): void {
+  if (!isValidRegisterNumber(registerValue)) {
+    throw new AppError("REGISTER_PHONE_INVALID", "Please check your number", 422);
+  }
 }
 
 /** Last-resort validation so a malformed body is rejected before touching SQL. */
@@ -54,6 +61,7 @@ Deno.serve(async (req) => {
 
     const profileLink = readString(body.tango_profile_link, "PROFILE_LINK_REQUIRED", 2048);
     const registerValue = readString(body.register_value, "REGISTER_REQUIRED", 320);
+    assertRegisterNumber(registerValue);
 
     // The database re-validates everything and enforces rate limits.
     const admin = serviceClient();

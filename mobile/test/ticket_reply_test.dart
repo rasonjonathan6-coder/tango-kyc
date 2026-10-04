@@ -1,16 +1,18 @@
-/// In-app replies on a ticket, exercised without a backend:
+/// The request detail screen offers a reply composer only when the server would
+/// accept a reply.
 ///
-///   * an open ticket shows an active composer and posting adds the message;
-///   * a closed ticket is read-only — no composer, and the reason is shown;
-///   * a request still owing a payment is blocked — no composer, and the rule
-///     is explained with the payment action offered;
-///   * a server `TICKET_CLOSED` answer flips the screen to read-only;
-///   * a server `PAYMENT_NOT_CONFIRMED` answer flips it to payment-blocked;
-///   * an empty reply is never sent.
+/// The rule mirrors `user_post_message`:
+///   * an open ticket that owes no payment, or whose payment has been approved,
+///     shows the composer and can send a reply;
+///   * a request that owes an unconfirmed payment stays read-only and explains
+///     that the reply will be available after confirmation;
+///   * a closed ticket stays read-only and explains it is closed;
+///   * the synthetic welcome ticket never shows a composer.
 ///
-/// The real write path (`reply-to-ticket` -> `user_post_message`) and its
-/// database guard are covered by the fake here and asserted directly in the
-/// SQL; a widget test cannot observe a real Supabase call.
+/// The server remains authoritative: a refusal (for example a payment gate that
+/// is still shut, or a ticket closed in the meantime) is surfaced to the user
+/// and stores nothing. The administration's own write path (`AdminTicketScreen`)
+/// and the `reply-to-ticket` / `user_post_message` functions are untouched.
 library;
 
 import 'package:flutter/material.dart';
@@ -21,6 +23,7 @@ import 'package:tango_kyc_verification/models/models.dart';
 import 'package:tango_kyc_verification/state/kyc_controller.dart';
 import 'package:tango_kyc_verification/state/notifications_controller.dart';
 import 'package:tango_kyc_verification/ui/screens/request_details_screen.dart';
+import 'package:tango_kyc_verification/ui/widgets/aurora.dart';
 
 import 'fakes.dart';
 
@@ -54,76 +57,98 @@ Widget _host(FakeKycService kyc, String ticketId) {
   );
 }
 
+/// Lets a pending SnackBar timer fire so the test can end cleanly.
+Future<void> _dismissSnackBar(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 5));
+  await tester.pumpAndSettle();
+}
+
+/// The conversation lives in a lazily-built list, so a message below the fold
+/// must be scrolled into view before it is attached to the tree.
+Future<void> _revealMessage(WidgetTester tester, String text) async {
+  await tester.scrollUntilVisible(
+    find.textContaining(text),
+    300,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('an open ticket shows a composer and posts the reply',
+  testWidgets('an open ticket that owes no payment shows the composer',
       (tester) async {
     final kyc = FakeKycService(requests: [_request('t1')]);
     await tester.pumpWidget(_host(kyc, 't1'));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(TextField, 'Écrire un message…'), findsOneWidget);
-
-    await tester.enterText(find.byType(TextField), 'Bonjour, une précision.');
-    await tester.testTextInput.receiveAction(TextInputAction.send);
-    await tester.pumpAndSettle();
-
-    expect(kyc.replies, hasLength(1));
-    expect(kyc.replies.single.ticketId, 't1');
-    expect(kyc.replies.single.body, 'Bonjour, une précision.');
-    // The sent message is appended to the conversation.
-    expect(find.text('Bonjour, une précision.'), findsOneWidget);
+    await _revealComposer(tester);
+    expect(find.text('Votre réponse'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Écrire une réponse...'), findsOneWidget);
+    expect(find.text('Envoyer'), findsOneWidget);
   });
 
-  testWidgets('a closed ticket is read-only and explains why', (tester) async {
+  testWidgets('a real request explains the support turnaround', (tester) async {
+    final kyc = FakeKycService(requests: [_request('t1')]);
+    await tester.pumpWidget(_host(kyc, 't1'));
+    await tester.pumpAndSettle();
+
+    await _revealMessage(tester, 'Délai de réponse du support');
+    expect(find.text('Délai de réponse du support'), findsOneWidget);
+    expect(find.textContaining('jusqu’à 24 h ouvrées'), findsOneWidget);
+    expect(
+      find.textContaining('peuvent varier selon le volume de demandes'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('an approved payment unlocks the composer', (tester) async {
     final kyc = FakeKycService(
-      requests: [_request('t1', status: KycStatus.closed)],
+      requests: [_request('t1', paymentRequired: true, isSubmitted: true)],
     );
     await tester.pumpWidget(_host(kyc, 't1'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(TextField), findsNothing);
-    // The closed notice is pinned in the footer, so it is always on screen.
-    expect(find.textContaining('Cette demande est fermée'), findsOneWidget);
-  });
-
-  testWidgets('a TICKET_CLOSED answer flips the screen to read-only',
-      (tester) async {
-    final kyc = FakeKycService(requests: [_request('t1')]);
-    await tester.pumpWidget(_host(kyc, 't1'));
-    await tester.pumpAndSettle();
-
+    // The payment action is no longer offered once the payment is approved.
+    expect(find.text('Payer avec MVola'), findsNothing);
+    await _revealComposer(tester);
     expect(find.byType(TextField), findsOneWidget);
-
-    // The ticket is closed between load and send: the server refuses, and the
-    // screen reloads so the composer disappears.
-    kyc.failReplyWithCode = 'TICKET_CLOSED';
-    kyc.requests.clear();
-    kyc.requests.add(_request('t1', status: KycStatus.closed));
-
-    await tester.enterText(find.byType(TextField), 'Trop tard ?');
-    await tester.testTextInput.receiveAction(TextInputAction.send);
-    await tester.pumpAndSettle();
-
-    expect(kyc.replies, isEmpty);
-    expect(find.byType(TextField), findsNothing);
-    // The notice is pinned in the footer; the transient SnackBar repeats the
-    // same reason, so allow more than one match.
-    expect(find.textContaining('Cette demande est fermée'), findsWidgets);
+    expect(find.text('Envoyer'), findsOneWidget);
   });
 
-  testWidgets('an empty reply is never sent', (tester) async {
+  testWidgets('a reply is sent and kept in the conversation', (tester) async {
     final kyc = FakeKycService(requests: [_request('t1')]);
     await tester.pumpWidget(_host(kyc, 't1'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '   ');
-    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await _revealComposer(tester);
+    await tester.enterText(find.byType(TextField), 'Voici mon document.');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(GradientButton));
+    await tester.pumpAndSettle();
+
+    expect(kyc.replies, hasLength(1));
+    expect(kyc.replies.single.ticketId, 't1');
+    expect(kyc.replies.single.body, 'Voici mon document.');
+    // The reply is appended to the conversation shown on the ticket.
+    await _revealMessage(tester, 'Voici mon document.');
+    expect(find.textContaining('Voici mon document.'), findsWidgets);
+    await _dismissSnackBar(tester);
+  });
+
+  testWidgets('an empty reply is not sent', (tester) async {
+    final kyc = FakeKycService(requests: [_request('t1')]);
+    await tester.pumpWidget(_host(kyc, 't1'));
+    await tester.pumpAndSettle();
+
+    await _revealComposer(tester);
+    await tester.tap(find.byType(GradientButton));
     await tester.pumpAndSettle();
 
     expect(kyc.replies, isEmpty);
   });
 
-  testWidgets('an unpaid request blocks the reply and explains why',
+  testWidgets('a request owing an unconfirmed payment stays read-only',
       (tester) async {
     final kyc = FakeKycService(
       requests: [_request('t1', paymentRequired: true, isSubmitted: false)],
@@ -131,49 +156,70 @@ void main() {
     await tester.pumpWidget(_host(kyc, 't1'));
     await tester.pumpAndSettle();
 
-    // No composer, and the reason is stated with the payment action offered.
     expect(find.byType(TextField), findsNothing);
-    await tester.scrollUntilVisible(
-      find.text('Réponse bloquée'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('Réponse bloquée'), findsOneWidget);
+    expect(find.text('Écrire une réponse...'), findsNothing);
+    expect(find.text('Envoyer'), findsNothing);
+    // The payment action is still offered, but never a reply box.
+    expect(find.text('Payer avec MVola'), findsWidgets);
     expect(
-      find.textContaining('doit être confirmé avant de pouvoir répondre'),
+      find.textContaining('après confirmation de votre paiement'),
       findsOneWidget,
     );
-    expect(find.text('Payer avec MVola'), findsWidgets);
   });
 
-  testWidgets('an approved payment shows the composer even without a payment embed',
+  testWidgets('a closed ticket shows no composer and explains it is closed',
       (tester) async {
-    // The server-derived state says the request is submitted, but the read path
-    // carries no `mvola_payments` embed. The composer must still be shown: the
-    // embed used to override the server state and hide it.
-    final approved = KycRequest.fromMap({
-      'id': 't1',
-      'ticket_code': 'TNG-KYC-t1',
-      'tango_profile_link': 'https://tango.me/x',
-      'register_type': 'email',
-      'register_value': 'a@example.com',
-      'status': 'pending',
-      'created_at': '2026-01-01T00:00:00.000Z',
-      'payment_required': true,
-      'payment_status': 'approved',
-      'is_submitted': true,
-    });
-    expect(approved.isSubmitted, isTrue);
-
-    final kyc = FakeKycService(requests: [approved]);
+    final kyc = FakeKycService(
+      requests: [_request('t1', status: KycStatus.closed)],
+    );
     await tester.pumpWidget(_host(kyc, 't1'));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(TextField, 'Écrire un message…'), findsOneWidget);
-    expect(find.text('Réponse bloquée'), findsNothing);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.textContaining('fermée'), findsOneWidget);
   });
 
-  testWidgets('the welcome ticket stays without a composer', (tester) async {
+  testWidgets('a server refusal is surfaced and stores nothing', (tester) async {
+    final kyc = FakeKycService(requests: [_request('t1')])
+      ..failReplyWithCode = 'PAYMENT_NOT_CONFIRMED';
+    await tester.pumpWidget(_host(kyc, 't1'));
+    await tester.pumpAndSettle();
+
+    await _revealComposer(tester);
+    await tester.enterText(find.byType(TextField), 'Bonjour');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(GradientButton));
+    await tester.pumpAndSettle();
+
+    expect(kyc.replies, isEmpty);
+    expect(find.textContaining('confirmé'), findsWidgets);
+    await _dismissSnackBar(tester);
+  });
+
+  testWidgets('the administration messages are shown, with links clickable',
+      (tester) async {
+    final kyc = FakeKycService(
+      requests: [_request('t1')],
+      messageItems: [
+        TicketMessage(
+          id: 'm1',
+          ticketId: 't1',
+          senderType: SenderType.admin,
+          body: 'Votre profil est validé. Détails : https://tango.me/profil/42',
+          createdAt: DateTime(2026, 1, 2),
+        ),
+      ],
+    );
+    await tester.pumpWidget(_host(kyc, 't1'));
+    await tester.pumpAndSettle();
+
+    await _revealMessage(tester, 'Votre profil est validé');
+    expect(find.textContaining('Votre profil est validé'), findsOneWidget);
+    // The URL inside the admin message is rendered as a link span.
+    expect(find.textContaining('https://tango.me/profil/42'), findsWidgets);
+  });
+
+  testWidgets('the welcome ticket stays read-only', (tester) async {
     final welcome = KycRequest(
       id: 'w1',
       ticketCode: 'TNG-KYC-w1',
@@ -189,35 +235,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(TextField), findsNothing);
-    expect(find.text('Réponse bloquée'), findsNothing);
-    expect(find.textContaining('Cette demande est fermée'), findsNothing);
-  });
-
-  testWidgets('a PAYMENT_NOT_CONFIRMED answer flips the screen to blocked',
-      (tester) async {
-    final kyc = FakeKycService(requests: [_request('t1')]);
-    await tester.pumpWidget(_host(kyc, 't1'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(TextField), findsOneWidget);
-
-    // The payment gate appears between load and send: the server refuses, and
-    // the screen reloads so the composer is replaced by the blocked notice.
-    kyc.failReplyWithCode = 'PAYMENT_NOT_CONFIRMED';
-    kyc.requests.clear();
-    kyc.requests.add(_request('t1', paymentRequired: true, isSubmitted: false));
-
-    await tester.enterText(find.byType(TextField), 'Je peux répondre ?');
-    await tester.testTextInput.receiveAction(TextInputAction.send);
-    await tester.pumpAndSettle();
-
-    expect(kyc.replies, isEmpty);
-    expect(find.byType(TextField), findsNothing);
-    await tester.scrollUntilVisible(
-      find.text('Réponse bloquée'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('Réponse bloquée'), findsOneWidget);
+    expect(find.text('Envoyer'), findsNothing);
   });
 }

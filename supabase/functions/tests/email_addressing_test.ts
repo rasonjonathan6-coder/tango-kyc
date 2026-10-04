@@ -99,9 +99,40 @@ Deno.test("KYC_RECIPIENT_EMAIL is accepted as an alias for the support mailbox",
   });
 });
 
+Deno.test("ADMIN_KYC_RECIPIENT is accepted as a legacy alias for the support mailbox", () => {
+  withEnv(
+    {
+      KYC_SUPPORT_EMAIL: undefined,
+      KYC_RECIPIENT_EMAIL: undefined,
+      ADMIN_KYC_RECIPIENT: "tangoturq@gmail.com",
+    },
+    () => {
+      assertEquals(supportRecipient(), "tangoturq@gmail.com");
+    },
+  );
+});
+
+Deno.test("KYC_SUPPORT_EMAIL wins over the legacy ADMIN_KYC_RECIPIENT alias", () => {
+  withEnv(
+    {
+      KYC_SUPPORT_EMAIL: "support@example.com",
+      KYC_RECIPIENT_EMAIL: undefined,
+      ADMIN_KYC_RECIPIENT: "tangoturq@gmail.com",
+    },
+    () => {
+      assertEquals(supportRecipient(), "support@example.com");
+    },
+  );
+});
+
 Deno.test("an unset support mailbox fails loudly instead of falling back to ADMIN_EMAIL", () => {
   withEnv(
-    { ADMIN_EMAIL: "admin-only@example.com", KYC_SUPPORT_EMAIL: undefined, KYC_RECIPIENT_EMAIL: undefined },
+    {
+      ADMIN_EMAIL: "admin-only@example.com",
+      KYC_SUPPORT_EMAIL: undefined,
+      KYC_RECIPIENT_EMAIL: undefined,
+      ADMIN_KYC_RECIPIENT: undefined,
+    },
     () => {
       assertThrows(() => supportRecipient(), Error, "KYC_SUPPORT_EMAIL_NOT_CONFIGURED");
     },
@@ -110,6 +141,7 @@ Deno.test("an unset support mailbox fails loudly instead of falling back to ADMI
 
 const TICKET: TicketForAdminNotification = {
   id: "11111111-1111-1111-1111-111111111111",
+  user_id: "22222222-2222-2222-2222-222222222222",
   ticket_code: "TNG-KYC-8F42A91C",
   tango_profile_link: "https://tango.me/user/7",
   register_type: "email",
@@ -129,6 +161,14 @@ Deno.test("the user message email carries the message but never the ticket code 
     assert(!part.includes(TICKET.id), "the ticket uuid must not appear");
   }
   assert(text.includes("Voici le document demandé."), "the user message must be included");
+});
+
+Deno.test("the user message email body is exactly the user's message", () => {
+  const { text } = userMessageToSupportEmailContent(TICKET, "comment");
+  assertEquals(text, "comment");
+  assert(!text.includes("Bonjour"), "no greeting must be added");
+  assert(!text.includes("Détails de la demande"), "no request details block must be added");
+  assert(!text.includes("Merci"), "no footer must be added");
 });
 
 Deno.test("the user message email escapes markup in the HTML body", () => {

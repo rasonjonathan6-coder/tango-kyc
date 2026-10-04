@@ -65,7 +65,9 @@ Deno.serve(async (req) => {
       const admin = serviceClient();
       const { data: ticket } = await admin
         .from("kyc_requests")
-        .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+        .select(
+          "id, ticket_code, tango_profile_link, register_type, register_value, reply_token, last_outbound_message_id, email_thread_id",
+        )
         .eq("id", ticketId)
         .maybeSingle();
       if (ticket) {

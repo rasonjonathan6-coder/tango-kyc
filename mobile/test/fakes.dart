@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:tango_kyc_verification/models/models.dart';
+import 'package:tango_kyc_verification/services/assistant_service.dart';
 import 'package:tango_kyc_verification/services/auth_service.dart';
 import 'package:tango_kyc_verification/services/kyc_service.dart';
 import 'package:tango_kyc_verification/services/mvola_service.dart';
@@ -317,6 +318,35 @@ class FakeKycService implements KycService {
   @override
   Future<void> unregisterDeviceToken({required String token}) async {
     unregisteredTokens.add(token);
+  }
+}
+
+/// In-memory assistant service. Records the conversation it was sent and returns
+/// a canned reply, so the chatbot screen and controller can be tested without a
+/// network or a real LLM provider.
+class FakeAssistantService implements AssistantService {
+  FakeAssistantService({this.reply = 'Réponse de test.', this.configured = true, this.failWithCode});
+
+  /// The text the assistant answers with.
+  String reply;
+
+  /// Whether the server reports a provider is configured.
+  bool configured;
+
+  /// When set, [send] throws with this code, to exercise the error path.
+  String? failWithCode;
+
+  int sendCalls = 0;
+  List<AssistantMessage> lastConversation = const [];
+
+  @override
+  Future<AssistantReply> send(List<AssistantMessage> conversation) async {
+    sendCalls += 1;
+    lastConversation = List.of(conversation);
+    if (failWithCode != null) {
+      throw KycServiceException(failWithCode!, 'boom');
+    }
+    return AssistantReply(text: reply, configured: configured);
   }
 }
 

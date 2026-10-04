@@ -36,7 +36,7 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   PROFILE_LINK_TOO_LONG: { message: "This profile link is too long.", status: 422 },
   REGISTER_REQUIRED: { message: "Please enter your register email or phone number.", status: 422 },
   REGISTER_EMAIL_INVALID: { message: "Please enter a valid email address.", status: 422 },
-  REGISTER_PHONE_INVALID: { message: "Please enter a valid phone number.", status: 422 },
+  REGISTER_PHONE_INVALID: { message: "Please check your number.", status: 422 },
   RATE_LIMITED: { message: "You already sent a request recently. Please wait a few minutes.", status: 429 },
   RATE_LIMITED_DAILY: { message: "You have reached the maximum number of requests for today.", status: 429 },
   FORBIDDEN: { message: "You are not allowed to do that.", status: 403 },
@@ -62,6 +62,9 @@ const PUBLIC_MESSAGES: Record<string, { message: string; status: number }> = {
   MVOLA_REASON_INVALID: { message: "This explanation is too long.", status: 422 },
   EMAIL_DELIVERY_FAILED: { message: "We could not send the confirmation email. Please try again.", status: 502 },
   SERVICE_NOT_CONFIGURED: { message: "This service is temporarily unavailable.", status: 503 },
+  LLM_NOT_CONFIGURED: { message: "The assistant is not available right now.", status: 503 },
+  LLM_UPSTREAM_ERROR: { message: "The assistant is temporarily unavailable. Please try again.", status: 502 },
+  LLM_TIMEOUT: { message: "The assistant took too long to answer. Please try again.", status: 504 },
   INVALID_WEBHOOK: { message: "Invalid webhook.", status: 400 },
 };
 

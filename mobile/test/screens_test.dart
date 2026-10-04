@@ -320,11 +320,11 @@ void main() {
     });
 
     test('date formatting matches the requested presentation', () {
-      expect(formatDate(DateTime(2026, 9, 25)), '25 September 2026');
+      expect(formatDate(DateTime(2026, 9, 25)), '25 septembre 2026');
     });
 
     test('date and time formatting is stable', () {
-      expect(formatDateTime(DateTime(2026, 9, 25, 9, 5)), '25 September 2026 à 09:05');
+      expect(formatDateTime(DateTime(2026, 9, 25, 9, 5)), '25 septembre 2026 à 09:05');
     });
   });
 

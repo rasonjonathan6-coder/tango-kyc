@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/net_log.dart';
 import '../models/models.dart';
 import '../services/kyc_service.dart';
 
@@ -36,8 +37,11 @@ class KycController extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
+      netStart('myRequests');
       _requests = await _service.myRequests();
+      netEnd('myRequests');
     } catch (error) {
+      netError('myRequests', error);
       _error = error.toString();
     } finally {
       _loading = false;

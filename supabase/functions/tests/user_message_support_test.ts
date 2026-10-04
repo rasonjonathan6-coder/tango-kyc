@@ -10,7 +10,7 @@
  * Run with:  deno test --allow-env --allow-net supabase/functions/tests/user_message_support_test.ts
  */
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.6";
-import { sendUserMessageToSupport } from "../_shared/email-provider.ts";
+import { adminRequestEmailContent, sendUserMessageToSupport } from "../_shared/email-provider.ts";
 import type { TicketForAdminNotification } from "../_shared/email-provider.ts";
 
 const TOKEN = "9f2c1d4e5a6b7c8d9e0f1a2b3c4d5e6f";
@@ -18,6 +18,7 @@ const SUPABASE_URL = "http://127.0.0.1:54321";
 
 const ticket: TicketForAdminNotification = {
   id: "11111111-1111-1111-1111-111111111111",
+  user_id: "22222222-2222-2222-2222-222222222222",
   ticket_code: "TNG-KYC-8F42A91C",
   tango_profile_link: "https://tango.me/user/7",
   register_type: "email",
@@ -131,6 +132,36 @@ Deno.test("the outbound provider id is recorded so a threaded reply still matche
   });
 });
 
+Deno.test("the user message continues the same Gmail thread via In-Reply-To", async () => {
+  await withStubbedNetwork(async (capture) => {
+    await sendUserMessageToSupport(
+      { ...ticket, last_outbound_message_id: "<tng-abc123@tango-kyc.local>" },
+      "Voici mon document.",
+      "msg-1",
+    );
+    const headers = capture.resendPayloads[0].headers as Record<string, string>;
+    assertEquals(headers["In-Reply-To"], "<tng-abc123@tango-kyc.local>");
+    assertEquals(headers["References"], "<tng-abc123@tango-kyc.local>");
+  });
+});
+
+Deno.test("the user message subject stays the request subject so Gmail keeps one thread", async () => {
+  await withStubbedNetwork(async (capture) => {
+    await sendUserMessageToSupport(ticket, "Voici mon document.", "msg-1");
+    // Gmail threads by subject plus the reference headers: a different subject
+    // starts a new conversation even when the headers are correct.
+    const expected = `Re: ${adminRequestEmailContent(ticket).subject}`;
+    assertEquals(capture.resendPayloads[0].subject, expected);
+  });
+});
+
+Deno.test("no threading headers are sent when no real Message-ID is stored", async () => {
+  await withStubbedNetwork(async (capture) => {
+    await sendUserMessageToSupport(ticket, "Voici mon document.", "msg-1");
+    assertEquals(capture.resendPayloads[0].headers, undefined);
+  });
+});
+
 Deno.test("the user message email never exposes the ticket code or uuid", async () => {
   await withStubbedNetwork(async (capture) => {
     await sendUserMessageToSupport(ticket, "Voici mon document.", "msg-1");
@@ -138,7 +169,8 @@ Deno.test("the user message email never exposes the ticket code or uuid", async 
     const serialised = JSON.stringify(payload);
     assert(!serialised.includes("TNG-KYC-8F42A91C"), "the ticket code must not appear");
     assert(!serialised.includes(ticket.id), "the ticket uuid must not appear");
-    assertStringIncludes(String(payload.subject), "vérification de compte");
+    // The subject is the request subject prefixed with "Re:", so it threads.
+    assertStringIncludes(String(payload.subject), "Re: Manual KYC Verification request");
     assertStringIncludes(String(payload.text), "Voici mon document.");
   });
 });

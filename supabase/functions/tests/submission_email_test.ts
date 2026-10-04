@@ -17,6 +17,7 @@ import type { TicketForAdminNotification } from "../_shared/email-provider.ts";
 
 const ticket: TicketForAdminNotification = {
   id: "11111111-1111-1111-1111-111111111111",
+  user_id: "22222222-2222-2222-2222-222222222222",
   ticket_code: "TNG-KYC-8F42A91C",
   tango_profile_link: "https://tango.me/user/7",
   register_type: "email",
@@ -24,48 +25,93 @@ const ticket: TicketForAdminNotification = {
   reply_token: "tok",
 };
 
-Deno.test("the admin email carries the required subject and both register shapes", () => {
+// Test 1 — the société subject carries the real profile link, dynamically.
+Deno.test("the société email subject is the required format with the dynamic profile link", () => {
+  const { subject } = adminRequestEmailContent({
+    ...ticket,
+    tango_profile_link: "https://tango.me/e2e-a",
+    register_type: "email",
+    register_value: "user+a-mvola-e2e-1@example.com",
+  });
+  assertEquals(
+    subject,
+    "Manual KYC Verification request - Profil Creator: (https://tango.me/e2e-a)",
+  );
+  // A different link must produce a different subject: nothing is hard-coded.
+  const { subject: other } = adminRequestEmailContent({
+    ...ticket,
+    tango_profile_link: "https://tango.me/e2e-b",
+  });
+  assertEquals(
+    other,
+    "Manual KYC Verification request - Profil Creator: (https://tango.me/e2e-b)",
+  );
+});
+
+// Test 1 — the body uses the exact required model for an email registration.
+Deno.test("the société email body follows the model with the register email", () => {
+  const { text } = adminRequestEmailContent({
+    ...ticket,
+    tango_profile_link: "https://tango.me/e2e-a",
+    register_type: "email",
+    register_value: "user+a-mvola-e2e-1@example.com",
+  });
+  const expected = [
+    "Hello support tango team,",
+    "",
+    "I am requesting a manual review of my identity verification (KYC).",
+    "",
+    "I have valid official government documents ready for submission to prove my identity.",
+    "",
+    "My account information:",
+    "",
+    "Tango profile ID: https://tango.me/e2e-a",
+    "Register email: user+a-mvola-e2e-1@example.com",
+    "",
+    "Send me the link for my verification.",
+    "",
+    "Please restart a manual review of my verification status.",
+    "",
+    "Thank you.",
+  ].join("\n");
+  assertEquals(text, expected);
+});
+
+// Test 2 — a phone registration shows "Register number", never an email field.
+Deno.test("the société email body follows the model with the register number", () => {
   const { subject, text } = adminRequestEmailContent({
+    ...ticket,
+    tango_profile_link: "https://tango.me/e2e-b",
+    register_type: "phone",
+    register_value: "0346754333",
+  });
+  assertEquals(
+    subject,
+    "Manual KYC Verification request - Profil Creator: (https://tango.me/e2e-b)",
+  );
+  assertStringIncludes(text, "Tango profile ID: https://tango.me/e2e-b");
+  assertStringIncludes(text, "Register number: 0346754333");
+  assert(!text.includes("Register email"), "no email field for a phone registration");
+  assert(!text.includes("null"), "no 'null' placeholder must ever be shown");
+});
+
+// Test 5 — the ticket code stays internal: absent from subject and body.
+Deno.test("the société email never leaks the ticket code, the uuid or 'Ticket ID'", () => {
+  const { subject, text, html } = adminRequestEmailContent({
     ...ticket,
     payment_amount: 20000,
     payment_currency: "MGA",
     payment_status: "approved",
     payment_reviewed_at: "2026-09-25T11:00:00.000Z",
   });
-  assertEquals(subject, "Nouvelle demande de vérification de compte");
-  assertStringIncludes(text, "https://tango.me/user/7");
-  assertStringIncludes(text, "Register email: requester@example.com");
-  assertStringIncludes(text, "Payment status: approved");
-  assertStringIncludes(text, "Payment amount: 20000 MGA");
-});
-
-Deno.test("the admin email never leaks the ticket code or the uuid", () => {
-  const { subject, text, html } = adminRequestEmailContent({
-    ...ticket,
-    payment_amount: 20000,
-    payment_currency: "MGA",
-  });
   for (const part of [subject, text, html]) {
     assert(!part.includes("TNG-KYC-8F42A91C"), "the ticket code must not appear");
+    assert(!part.includes("TNG-KYC-"), "no ticket code prefix must appear");
     assert(!part.includes("Ticket ID"), "no 'Ticket ID' label must appear");
     assert(!part.includes(ticket.id), "the ticket uuid must not appear");
+    assert(!part.includes("Payment status"), "no payment block must appear");
+    assert(!part.includes("Received:"), "no received block must appear");
   }
-});
-
-Deno.test("the admin email reports a phone registration as a number, not an email", () => {
-  const { text } = adminRequestEmailContent({
-    ...ticket,
-    register_type: "phone",
-    register_value: "+261341234567",
-  });
-  assertStringIncludes(text, "Register number: +261341234567");
-  assert(!text.includes("Register email"));
-});
-
-Deno.test("the admin email omits the amount line when no payment is attached", () => {
-  const { text, html } = adminRequestEmailContent(ticket);
-  assert(!text.includes("Payment amount"));
-  assert(!html.includes("Payment amount"));
 });
 
 Deno.test("the admin email escapes markup in the HTML body", () => {

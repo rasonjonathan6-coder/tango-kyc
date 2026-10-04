@@ -15,6 +15,7 @@ import { env, serviceClient } from "../_shared/clients.ts";
 import { verifySvixSignature } from "../_shared/svix.ts";
 import { extractCleanReplyBody, sanitizeForStorage } from "../_shared/email-body.ts";
 import {
+  accountEmail,
   emailSendingConfigured,
   fetchReceivedEmail,
   replyToAddress,
@@ -272,21 +273,20 @@ async function notifyPush(ticketId: string): Promise<number> {
 /**
  * Emails the ticket owner when a reply arrives by email.
  *
- * The recipient is `kyc_requests.register_value` — the Tango registration email
- * the user typed into the KYC form, also known as `tango_registration_email`.
- * That is the address the external company was told about, so it is where the
- * reply belongs. It is deliberately NOT `profiles.email`, which is only the
- * account/login address for Tango KYC Verification itself.
+ * The recipient is the address of the user's account in the application
+ * (`profiles.email`), resolved server side from the ticket owner. It is
+ * deliberately NOT `register_value`, the address typed into the KYC form: that
+ * value stays a request datum and never decides where the mail goes.
  *
- * `register_value` may also hold a phone number, in which case no mail is sent
- * and the reply stays in the dashboard: an address is never invented.
+ * A user with no account address is never sent mail: an address is never
+ * invented, and the reply stays in the dashboard.
  */
 async function notifyUser(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
 
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("ticket_code, register_type, register_value, reply_token")
+    .select("user_id, ticket_code, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -295,7 +295,7 @@ async function notifyUser(ticketId: string): Promise<boolean> {
     return false;
   }
 
-  const { recipient, reason } = userReplyRecipient(ticket);
+  const { recipient, reason } = userReplyRecipient({ email: await accountEmail(ticket.user_id) });
   if (!recipient) {
     console.warn(
       "Ticket %s: %s; the reply stays in the dashboard.",

@@ -58,6 +58,14 @@ String? ticketIdFromData(Map<String, dynamic> data) {
   return (id == null || id.isEmpty) ? null : id;
 }
 
+/// A safe, non-replayable label for a token in a debug log: its length and a
+/// short prefix, never the token itself. An FCM token is the device's push
+/// address, so it must not appear whole in any log line.
+String maskTokenForLog(String token) {
+  final prefix = token.length <= 6 ? token : token.substring(0, 6);
+  return 'length=${token.length} prefix=$prefix';
+}
+
 /// The device's notification-permission state, as far as the app can tell.
 ///
 /// [unavailable] means the question cannot be answered — Firebase is not
@@ -130,18 +138,48 @@ class NoopPushService implements PushService {
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {}
 
 class FirebasePushService implements PushService {
-  FirebasePushService(this._service);
+  FirebasePushService(
+    this._service, {
+    Future<bool> Function()? initialize,
+    Future<AuthorizationStatus> Function()? requestPermission,
+    Future<String?> Function()? getToken,
+  })  : _initializeOverride = initialize,
+        _requestPermission = requestPermission ?? _defaultRequestPermission,
+        _getToken = getToken ?? _defaultGetToken;
 
   final KycService _service;
+
+  /// Seams over the Firebase plugin calls. Production passes none of them, so the
+  /// real `FirebaseMessaging` calls are used; they exist only so the registration
+  /// decision can be exercised on a host where no plugin is available.
+  final Future<bool> Function()? _initializeOverride;
+  final Future<AuthorizationStatus> Function() _requestPermission;
+  final Future<String?> Function() _getToken;
 
   final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
   final StreamController<PushEvent> _open = StreamController<PushEvent>.broadcast();
 
+  /// The single shared initialisation. [initialize] and an early
+  /// [registerCurrentToken] both await this same future, so concurrent calls
+  /// collapse into one `Firebase.initializeApp()` and an early caller waits for
+  /// it instead of giving up on `if (!_initialized) return;`.
+  Future<bool>? _initFuture;
   bool _initialized = false;
+
+  /// Number of real initialisation attempts. Always 0 or 1 in production; a test
+  /// uses it to prove concurrent calls share a single attempt.
+  @visibleForTesting
+  int debugInitAttempts = 0;
+
   StreamSubscription<String>? _tokenRefresh;
   StreamSubscription<RemoteMessage>? _onMessage;
   StreamSubscription<RemoteMessage>? _onOpened;
   String? _token;
+
+  static Future<AuthorizationStatus> _defaultRequestPermission() async =>
+      (await FirebaseMessaging.instance.requestPermission()).authorizationStatus;
+
+  static Future<String?> _defaultGetToken() => FirebaseMessaging.instance.getToken();
 
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
     kycReplyChannelId,
@@ -158,50 +196,73 @@ class FirebasePushService implements PushService {
   Stream<PushEvent> get onTicketOpen => _open.stream;
 
   @override
-  Future<bool> initialize() async {
-    if (_initialized) return true;
+  Future<bool> initialize() {
+    // One shared future: a second call (or an early `registerCurrentToken`)
+    // awaits the in-flight initialisation instead of starting another one.
+    return _initFuture ??= _initialize();
+  }
+
+  Future<bool> _initialize() async {
+    debugPrint('[fcm] initialize: start');
+    final override = _initializeOverride;
     try {
-      await Firebase.initializeApp();
-      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-      await _local.initialize(
-        const InitializationSettings(
-          android: AndroidInitializationSettings(kycReplyIcon),
-        ),
-        onDidReceiveNotificationResponse: (response) {
-          // The foreground-path tap carries the payload in `payload`.
-          final raw = response.payload;
-          if (raw != null && raw.isNotEmpty) {
-            _open.add(PushEvent(ticketId: raw));
-          }
-        },
-      );
-      await _local
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(_channel);
-      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      _onMessage = FirebaseMessaging.onMessage.listen(_showForeground);
-      _onOpened = FirebaseMessaging.onMessageOpenedApp.listen(_fromMessage);
-
-      // Cold start from a notification tap.
-      final initial = await FirebaseMessaging.instance.getInitialMessage();
-      if (initial != null) _fromMessage(initial);
-
-      _tokenRefresh = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
-        _token = token;
-        unawaited(_register(token));
-      });
-
+      final ok = override != null ? await override() : await _initFirebase();
+      if (!ok) {
+        debugPrint('[fcm] initialize: Firebase unavailable');
+        return false;
+      }
       _initialized = true;
+      debugPrint('[fcm] initialize: done');
       return true;
-    } catch (_) {
+    } catch (error) {
       // Most often: no google-services.json, or Firebase not initialised on this
       // platform (the test host). Stay inert rather than crash.
+      debugPrint('[fcm] initialize: failed: $error');
       return false;
     }
+  }
+
+  /// The real plugin setup. Returns false when Firebase cannot be initialised,
+  /// which the caller turns into an inert service rather than a crash.
+  Future<bool> _initFirebase() async {
+    debugInitAttempts += 1;
+    await Firebase.initializeApp();
+    debugPrint('[fcm] initializeApp: ok');
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    await _local.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings(kycReplyIcon),
+      ),
+      onDidReceiveNotificationResponse: (response) {
+        // The foreground-path tap carries the payload in `payload`.
+        final raw = response.payload;
+        if (raw != null && raw.isNotEmpty) {
+          _open.add(PushEvent(ticketId: raw));
+        }
+      },
+    );
+    await _local
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_channel);
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    _onMessage = FirebaseMessaging.onMessage.listen(_showForeground);
+    _onOpened = FirebaseMessaging.onMessageOpenedApp.listen(_fromMessage);
+
+    // Cold start from a notification tap.
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) _fromMessage(initial);
+
+    _tokenRefresh = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+      debugPrint('[fcm] onTokenRefresh: ${maskTokenForLog(token)}');
+      _token = token;
+      unawaited(_register(token));
+    });
+
+    return true;
   }
 
   Future<void> _showForeground(RemoteMessage message) async {
@@ -237,28 +298,42 @@ class FirebasePushService implements PushService {
   Future<void> _register(String token) async {
     try {
       await _service.registerDeviceToken(token: token, platform: 'android');
-    } catch (_) {
+      debugPrint('[fcm] token registered: ${maskTokenForLog(token)}');
+    } catch (error) {
       // Registration retries on the next sign-in or token refresh.
+      debugPrint('[fcm] token registration failed: $error');
     }
   }
 
   @override
   Future<void> registerCurrentToken() async {
-    if (!_initialized) return;
+    // Wait for the shared initialisation instead of bailing out when an early
+    // caller (a restored session) reaches here before `initialize()` finished.
+    final ready = await initialize();
+    if (!ready) {
+      debugPrint('[fcm] register skipped: Firebase not initialized');
+      return;
+    }
     try {
       // Android 13+ requires a runtime permission before any notification shows.
-      final settings = await FirebaseMessaging.instance.requestPermission();
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      final status = await _requestPermission();
+      debugPrint('[fcm] permission: ${status.name}');
+      if (status == AuthorizationStatus.denied) {
         // The user refused: do not register a token we could never use for a
         // visible notification, but never block the app either.
         return;
       }
-      final token = _token ?? await FirebaseMessaging.instance.getToken();
-      if (token == null || token.isEmpty) return;
+      final token = _token ?? await _getToken();
+      if (token == null || token.isEmpty) {
+        debugPrint('[fcm] getToken: none');
+        return;
+      }
       _token = token;
+      debugPrint('[fcm] getToken: ${maskTokenForLog(token)}');
       await _register(token);
-    } catch (_) {
+    } catch (error) {
       // Best effort; a later sign-in retries.
+      debugPrint('[fcm] registerCurrentToken failed: $error');
     }
   }
 

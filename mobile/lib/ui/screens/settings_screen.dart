@@ -12,8 +12,11 @@ import '../../config/app_config.dart';
 import '../../services/notification_service.dart';
 import '../../state/auth_controller.dart';
 import '../../state/settings_controller.dart';
+import '../theme/app_theme.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/common.dart';
 import '../widgets/tango_scaffold.dart';
+import 'about_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -33,6 +36,42 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
         children: [
+          // Logo at the top, signature right under it. Reuses the shared brand
+          // mark and the existing logo asset; no new asset, no second app bar.
+          AnimatedEntry(
+            child: Center(
+              child: Column(
+                children: [
+                  const BrandMark(height: 64, asset: kHomeLogoAsset),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Tango KYC Verification',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Conçu et développé par Jonathan',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    '© 2026 Jonathan — Madagascar 🇲🇬',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
           SummaryCard(
             title: 'Apparence',
             children: [
@@ -136,6 +175,9 @@ class SettingsScreen extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+          const SizedBox(height: 24),
+          // Same "À propos" block as the standalone screen, from one source.
+          const AboutContent(),
         ],
       ),
     );

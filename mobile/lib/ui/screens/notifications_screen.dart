@@ -13,6 +13,7 @@ import '../../models/models.dart';
 import '../../state/notifications_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/linkified_text.dart';
 import '../widgets/modern.dart';
 import '../widgets/tango_scaffold.dart';
 import 'request_details_screen.dart';
@@ -174,9 +175,11 @@ class _NotificationCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
+                    LinkifiedText(
                       item.body,
                       style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Text(

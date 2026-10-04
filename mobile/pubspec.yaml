@@ -74,6 +74,11 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Pins the exact Supabase Auth requests in `otp_transport_test.dart` through a
+  # local `MockClient`, so the code flow is asserted at the HTTP layer with no
+  # network. Only the test suite uses it.
+  http: ^1.2.0
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your

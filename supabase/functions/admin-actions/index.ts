@@ -8,6 +8,7 @@
 import { AppError, errorResponse, handlePreflight, jsonResponse, translateDbError } from "../_shared/http.ts";
 import { env, requireAdmin, serviceClient, userClient } from "../_shared/clients.ts";
 import {
+  accountEmail,
   emailSendingConfigured,
   replyToAddress,
   sendAdminRequestNotification,
@@ -267,7 +268,7 @@ async function notifyAdminOfApprovedRequest(ticketId: string): Promise<boolean> 
 
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+    .select("id, user_id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -328,7 +329,7 @@ async function notifyUserOfApprovedRequest(ticketId: string): Promise<boolean> {
 
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
+    .select("id, user_id, ticket_code, tango_profile_link, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -352,19 +353,18 @@ async function notifyUserOfApprovedRequest(ticketId: string): Promise<boolean> {
 /**
  * Emails the ticket owner when an admin posts a reply.
  *
- * The recipient is `kyc_requests.register_value` — the Tango registration email
- * the user supplied in the KYC form (`tango_registration_email`), and the address
- * the external company was told about. It is deliberately NOT `profiles.email`,
- * which is only the account/login address for this application.
+ * The recipient is the address of the user's account in the application
+ * (`profiles.email`), resolved server side from the ticket owner. It is
+ * deliberately NOT `register_value`, the address typed into the KYC form: that
+ * value stays a request datum and never decides where the mail goes.
  *
- * A phone-only requester is never sent mail: `register_value` also accepts a
- * phone number, and no address is invented from it.
+ * A user with no account address is never sent mail: no address is invented.
  */
 async function notifyOwner(ticketId: string): Promise<boolean> {
   const admin = serviceClient();
   const { data: ticket, error } = await admin
     .from("kyc_requests")
-    .select("ticket_code, register_type, register_value, reply_token")
+    .select("user_id, ticket_code, register_type, register_value, reply_token")
     .eq("id", ticketId)
     .maybeSingle();
 
@@ -373,7 +373,7 @@ async function notifyOwner(ticketId: string): Promise<boolean> {
     return false;
   }
 
-  const { recipient, reason } = userReplyRecipient(ticket);
+  const { recipient, reason } = userReplyRecipient({ email: await accountEmail(ticket.user_id) });
   if (!recipient) {
     console.warn(
       "Ticket %s: %s; the owner was not emailed.",

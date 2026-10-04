@@ -381,11 +381,11 @@ class SummaryCard extends StatelessWidget {
   }
 }
 
-/// Formats a date the way the brief shows it: "25 September 2026".
+/// Formats a date with the French month names: "25 septembre 2026".
 String formatDate(DateTime date) {
   const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+    'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
   ];
   return '${date.day} ${months[date.month - 1]} ${date.year}';
 }

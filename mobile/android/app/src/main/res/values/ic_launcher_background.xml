@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sampled from the corners of icone.png (377FB271-…), the real source. -->
+    <color name="ic_launcher_background">#FDFDFD</color>
+</resources>

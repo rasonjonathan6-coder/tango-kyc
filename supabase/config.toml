@@ -432,6 +432,12 @@ verify_jwt = false
 # code with 401.
 verify_jwt = false
 
+[functions.chat-assistant]
+# Same reasoning as create-kyc-request: the function calls `requireUser`, so an
+# anonymous caller is rejected with 401 and the assistant (which costs money per
+# turn) is never reachable without a signed-in account.
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

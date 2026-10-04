@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/net_log.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
 
@@ -48,13 +49,26 @@ class AuthController extends ChangeNotifier {
       if (_session != null) {
         await _loadProfile();
       }
-      _subscription = _auth.authStateChanges.listen(_onAuthStateChange);
+      // `authStateChanges` carries no `onError`: a stream error (a failed token
+      // refresh, a dropped socket) would otherwise escape as an uncaught async
+      // error and take the whole app down to the startup-error screen.
+      _subscription = _auth.authStateChanges.listen(
+        _onAuthStateChange,
+        onError: _onAuthStateError,
+      );
     } catch (error) {
       _lastError = error.toString();
     } finally {
       _initialized = true;
       notifyListeners();
     }
+  }
+
+  /// Keeps a broken auth stream from crashing the app. The persisted session, if
+  /// any, is left untouched; the next auth event or an explicit action reconciles.
+  void _onAuthStateError(Object error, StackTrace stackTrace) {
+    _lastError = error.toString();
+    notifyListeners();
   }
 
   Future<void> _onAuthStateChange(AuthState state) async {
@@ -91,12 +105,16 @@ class AuthController extends ChangeNotifier {
     _lastError = null;
     notifyListeners();
     try {
+      netStart('auth.run');
       await action();
+      netEnd('auth.run');
       return true;
     } on AuthException catch (error) {
+      netError('auth.run', error);
       _lastError = error.message;
       return false;
     } catch (error) {
+      netError('auth.run', error);
       _lastError = error.toString();
       return false;
     } finally {
@@ -137,8 +155,10 @@ class AuthController extends ChangeNotifier {
   /// Re-sends a code. The server enforces its own per-hour limit; a rejection
   /// surfaces through `lastError`.
   ///
-  /// Implemented without `signInWithOtp`, so it cannot overwrite the PKCE code
-  /// verifier that a pending confirmation link depends on.
+  /// The service routes by purpose: a recovery resend never uses `signInWithOtp`,
+  /// so it cannot overwrite the PKCE code verifier a pending confirmation link
+  /// depends on; a sign-in code resend re-requests the code, because that is the
+  /// only endpoint that can mail another one for an existing account.
   Future<bool> resendEmailOtp({required String email, required EmailOtpPurpose purpose}) =>
       run(() => _auth.resendEmailOtp(email, purpose));
 

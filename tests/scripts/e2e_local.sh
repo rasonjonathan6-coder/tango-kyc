@@ -239,17 +239,17 @@ if [ -z "$TOKEN_C" ]; then
 fi
 PHONE_CREATE=$(curl -s -X POST "$API/functions/v1/create-kyc-request" \
   -H "Authorization: Bearer $TOKEN_C" -H "Content-Type: application/json" \
-  -d '{"tango_profile_link":"https://tango.me/phone-profile","register_value":"+261 34 12 345 67"}')
+  -d '{"tango_profile_link":"https://tango.me/phone-profile","register_value":"034 67 54 333"}')
 PHONE_TYPE=$(echo "$PHONE_CREATE" | python3 -c 'import sys,json; print((json.load(sys.stdin).get("ticket") or {}).get("register_type") or "")' 2>/dev/null)
 PHONE_VALUE=$(echo "$PHONE_CREATE" | python3 -c 'import sys,json; print((json.load(sys.stdin).get("ticket") or {}).get("register_value") or "")' 2>/dev/null)
 check "phone detected instead of email" "$PHONE_TYPE" "phone"
-check "phone normalised" "$PHONE_VALUE" "+261341234567"
+check "phone normalised" "$PHONE_VALUE" "0346754333"
 
 # The admin email body must say "Register number:" and never "Register email:".
 PHONE_TICKET_ID=$(echo "$PHONE_CREATE" | python3 -c 'import sys,json; print((json.load(sys.stdin).get("ticket") or {}).get("id") or "")' 2>/dev/null)
 PHONE_MSG=$(psql_exec "select body from public.messages where ticket_id = '$PHONE_TICKET_ID' order by created_at limit 1")
 case "$PHONE_MSG" in
-  *"Register number: +261341234567"*) ok "ticket record shows 'Register number:'";;
+  *"Register number: 0346754333"*) ok "ticket record shows 'Register number:'";;
   *) bad "ticket record shows: $PHONE_MSG";;
 esac
 case "$PHONE_MSG" in

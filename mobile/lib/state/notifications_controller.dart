@@ -8,6 +8,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/net_log.dart';
 import '../models/models.dart';
 import '../services/kyc_service.dart';
 
@@ -32,8 +33,11 @@ class NotificationsController extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
+      netStart('notifications');
       _items = await _service.notifications();
+      netEnd('notifications');
     } catch (error) {
+      netError('notifications', error);
       _error = error.toString();
     } finally {
       _loading = false;

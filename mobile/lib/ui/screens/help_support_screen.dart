@@ -11,7 +11,9 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/aurora.dart';
 import '../widgets/common.dart';
+import '../widgets/linkified_text.dart';
 import '../widgets/tango_scaffold.dart';
+import 'assistant_screen.dart';
 import 'support_chat_screen.dart';
 
 /// One FAQ question and its answer.
@@ -67,6 +69,20 @@ class HelpSupportScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
+          AnimatedEntry(
+            delay: const Duration(milliseconds: 30),
+            child: _ActionRow(
+              icon: Icons.auto_awesome_rounded,
+              title: 'Assistant Tango KYC',
+              subtitle: 'Réponses instantanées à vos questions',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AssistantScreen(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           AnimatedEntry(
             delay: const Duration(milliseconds: 50),
             child: _ActionRow(
@@ -236,7 +252,7 @@ class _FaqTile extends StatelessWidget {
               children: [
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
+                  child: LinkifiedText(
                     faq.answer,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,

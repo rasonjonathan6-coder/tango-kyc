@@ -16,13 +16,16 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config/app_config.dart';
+import 'core/dns_test.dart';
 import 'services/auth_service.dart';
+import 'services/assistant_service.dart';
 import 'services/kyc_service.dart';
 import 'services/mvola_service.dart';
 import 'services/notification_service.dart';
 import 'services/realtime_service.dart';
 import 'state/admin_controller.dart';
 import 'state/admin_mvola_controller.dart';
+import 'state/assistant_controller.dart';
 import 'state/auth_controller.dart';
 import 'state/kyc_controller.dart';
 import 'state/mvola_controller.dart';
@@ -77,6 +80,9 @@ Future<void> startApp() async {
     runApp(const _ConfigurationMissingApp());
     return;
   }
+
+  // Temporary diagnostic: probe Dart's own resolver before Supabase Auth does.
+  await runDnsDiagnostic();
 
   try {
     await Supabase.initialize(
@@ -143,6 +149,8 @@ class _TangoKycAppState extends State<TangoKycApp> {
         ChangeNotifierProvider(create: (_) => SettingsController(_storage)..load()),
         ChangeNotifierProvider(
             create: (_) => NotificationsController(SupabaseKycService(client))),
+        ChangeNotifierProvider(
+            create: (_) => AssistantController(SupabaseAssistantService(client))),
       ],
       child: Consumer<SettingsController>(
         builder: (context, settings, _) => MaterialApp(

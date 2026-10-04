@@ -9,6 +9,7 @@ import '../../core/validators.dart';
 import '../../models/models.dart';
 import '../../state/admin_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/linkified_text.dart';
 import '../widgets/tango_scaffold.dart';
 
 class AdminTicketScreen extends StatefulWidget {
@@ -256,7 +257,10 @@ class _AdminTicketScreenState extends State<AdminTicketScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            SelectableText(message.body, style: theme.textTheme.bodyMedium),
+                            LinkifiedText(
+                              message.body,
+                              style: theme.textTheme.bodyMedium,
+                            ),
                           ],
                         ),
                       ),

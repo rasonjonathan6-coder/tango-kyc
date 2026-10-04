@@ -1,9 +1,9 @@
 /// The compact brand header used on the Home.
 ///
-/// It replaces the previous arrangement where the shell's app bar already said
-/// "Tango KYC" and the screen's header repeated it. Here the brand appears once,
-/// paired with a short, useful subtitle and the user's avatar as the entry point
-/// to the profile tab — no second app bar, no duplicate title.
+/// The logo sits at the top of the screen, with the brand signature directly
+/// under it; the user's avatar stays on the right as the entry point to the
+/// profile tab. The shell leaves the Home app bar untitled, so the brand appears
+/// exactly once — no second app bar, no duplicate title.
 library;
 
 import 'package:flutter/material.dart';
@@ -30,14 +30,14 @@ class HomeHeader extends StatelessWidget {
 
     return Row(
       children: [
-        // The Home-only derivative: same artwork as the shared lockup, with the
-        // transparent padding cropped so the mark optically fills its box.
-        const BrandMark(height: 40, asset: kHomeLogoAsset),
-        const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // The logo sits at the very top of the screen; the signature
+              // follows directly under it.
+              const BrandMark(height: 40, asset: kHomeLogoAsset),
+              const SizedBox(height: 6),
               Text(
                 'Tango KYC',
                 style: theme.textTheme.titleLarge?.copyWith(

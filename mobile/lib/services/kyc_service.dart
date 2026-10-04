@@ -9,6 +9,7 @@ import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/net_log.dart';
 import '../models/models.dart';
 
 /// Raised when the backend declines a request, carrying the stable error code.
@@ -353,9 +354,12 @@ Future<Map<String, dynamic>> invokeFunction(
   Map<String, dynamic> body,
 ) async {
   try {
+    netStart('edge:$name');
     final response = await client.functions.invoke(name, body: body);
+    netEnd('edge:$name');
     return asJsonMap(response.data);
   } on FunctionException catch (error) {
+    netError('edge:$name', error);
     throw kycExceptionFor(error);
   }
 }

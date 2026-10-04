@@ -276,10 +276,10 @@ enum MvolaStatus {
       };
 
   String get label => switch (this) {
-        MvolaStatus.pending => 'Pending',
-        MvolaStatus.approved => 'Approved',
-        MvolaStatus.rejected => 'Refused',
-        MvolaStatus.cancelled => 'Cancelled',
+        MvolaStatus.pending => 'En attente',
+        MvolaStatus.approved => 'Approuvé',
+        MvolaStatus.rejected => 'Refusé',
+        MvolaStatus.cancelled => 'Annulé',
       };
 }
 
