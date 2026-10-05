@@ -1,0 +1,27 @@
+name: Gmail token monitor
+
+# The Google OAuth consent screen is External + Testing, so Gmail refresh tokens
+# expire after 7 days. This workflow pings the monitor once a day; the monitor
+# pushes an alert to the admins when the token is expired or about to expire.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping gmail-token-monitor
+        env:
+          MONITOR_URL: https://hbvjpawnszzcbcjmbkuf.supabase.co/functions/v1/gmail-token-monitor
+          MONITOR_SECRET: ${{ secrets.GMAIL_MONITOR_SECRET }}
+        run: |
+          curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "x-monitor-secret: ${MONITOR_SECRET}" \
+            --output /dev/null \
+            "${MONITOR_URL}"
