@@ -87,6 +87,10 @@
   li{margin:.4em 0}
   .warn{display:flex;gap:11px;align-items:flex-start;margin-top:16px;border-radius:14px;padding:13px 15px;font-size:.9rem;
     background:rgba(255,194,75,.10);border:1px solid rgba(255,194,75,.38);color:#F8E3B4}
+  .note,.danger{display:flex;gap:11px;align-items:flex-start;margin-top:14px;border-radius:14px;padding:13px 15px;font-size:.9rem}
+  .note{background:rgba(22,140,255,.10);border:1px solid rgba(22,140,255,.38);color:#CFE7FF}
+  .danger{background:rgba(255,92,138,.10);border:1px solid rgba(255,92,138,.42);color:#FFD3E0}
+  .step-detail{margin:.35em 0 0;font-size:.88rem;color:var(--muted)}
   .notplay{margin:0;font-weight:600;color:#EBDCFF}
   footer{margin-top:32px;text-align:center;color:var(--muted);font-size:.86rem;border-top:1px solid var(--border);padding-top:22px}
   footer .sig{font-weight:800;letter-spacing:.01em;
@@ -126,22 +130,49 @@
       <dt>Configuration requise</dt><dd>Android 7.0 (API 24) ou supérieur</dd>
       <dt>Signature</dt><dd>APK Signature Scheme v2 — signé (certificat de release)</dd>
     </dl>
-    <h2 style="margin-top:22px"><span class="bar"></span>Empreinte SHA-256 de l'APK</h2>
-    <p class="sub" style="font-size:.9rem;margin:0 0 10px">Vérifiez que le fichier téléchargé est identique à l'original :</p>
+    <h2 style="margin-top:22px" id="verify"><span class="bar"></span>Vérification du fichier</h2>
+    <dl class="meta">
+      <dt>Taille attendue</dt><dd>65 245 118 octets (62,2 Mo)</dd>
+      <dt>SHA-256 attendu</dt><dd>voir ci-dessous</dd>
+    </dl>
     <code class="hash">bf3af802d008fa2afd1ba0a49c3930644625cea06b85b26e48d5008e4b7fe47a</code>
+    <p class="sub" style="font-size:.9rem;margin:10px 0 0">Cette empreinte (SHA-256) permet de vérifier que le fichier téléchargé est <strong>identique à l'original</strong> et qu'il n'a pas été altéré pendant le transfert. Elle ne constitue toutefois <strong>pas</strong>, à elle seule, une preuve que le fichier est exempt de logiciel malveillant : elle garantit l'intégrité, pas l'innocuité.</p>
+  </section>
+
+  <section class="card" aria-labelledby="why">
+    <h2 id="why"><span class="bar"></span>Pourquoi Android affiche-t-il un avertissement ?</h2>
+    <p class="sub" style="font-size:.92rem;margin:0 0 10px">Android et Google Play Protect peuvent analyser les applications installées <strong>hors du Google Play Store</strong> (installation « manuelle » ou « directe »). Dans ce cas, l'avertissement affiché signale simplement qu'une application provient d'une source autre que Play :</p>
+    <ul>
+      <li>Android examine les applications installées depuis d'autres sources.</li>
+      <li>Cet avertissement <strong>ne prouve pas à lui seul</strong> qu'une application est malveillante ; il indique seulement qu'elle n'a pas été validée par le Play Store.</li>
+      <li>Inversement, il n'existe ici <strong>aucune garantie automatique</strong> que l'application est sûre : une analyse de sécurité indépendante serait nécessaire pour l'affirmer.</li>
+    </ul>
+    <div class="note" role="note">
+      <span aria-hidden="true">ℹ️</span>
+      <span>Nous ne pouvons pas garantir que ce fichier est exempt de tout risque sans une analyse de sécurité indépendante. Installez-le uniquement si vous faites confiance à sa provenance (cette page officielle).</span>
+    </div>
   </section>
 
   <section class="card" aria-labelledby="install">
-    <h2 id="install"><span class="bar"></span>Installer l'application</h2>
+    <h2 id="install"><span class="bar"></span>Guide d'installation Android</h2>
     <ol>
-      <li>Appuyez sur le bouton de téléchargement ci-dessus (le fichier <strong>tango-kyc.apk</strong> se télécharge).</li>
+      <li>Téléchargez l'APK depuis cette page officielle (bouton de téléchargement ci-dessus) : le fichier <strong>tango-kyc.apk</strong> se télécharge.</li>
       <li>Ouvrez le fichier téléchargé depuis les <em>Notifications</em> ou l'application <em>Fichiers</em>.</li>
-      <li>Si Android le demande, autorisez l'installation depuis cette source (« Installer des applications inconnues » pour votre navigateur).</li>
+      <li>Lisez attentivement l'avertissement de sécurité qu'Android affiche avant l'installation.
+        <p class="step-detail">Vérifiez au passage la provenance du fichier et comparez sa taille / son empreinte SHA-256 avec celles indiquées sur cette page.</p>
+      </li>
+      <li>Si Android propose <strong>« Plus de détails »</strong> puis <strong>« Installer quand même »</strong>, cette option ne doit être utilisée <strong>que</strong> si vous avez vérifié la provenance du fichier et que vous souhaitez poursuivre en connaissance de cause.
+        <p class="step-detail">N'utilisez « Installer quand même » que pour un fichier dont vous êtes certain de la source.</p>
+      </li>
       <li>Confirmez l'installation, puis ouvrez <strong>Tango KYC Verification</strong>.</li>
     </ol>
     <div class="warn" role="note">
       <span aria-hidden="true">⚠️</span>
-      <span>À l'installation d'une application hors Google Play, Android peut afficher un avertissement de sécurité (Google Play Protect). C'est normal : l'application est distribuée directement par son développeur. Vérifiez l'empreinte SHA-256 ci-dessus avant d'installer.</span>
+      <span>Les textes des boutons et des messages peuvent <strong>varier</strong> selon le téléphone, le fabricant et la version d'Android. Les libellés indiqués ici sont ceux que l'on rencontre le plus souvent, sans garantie qu'ils soient identiques sur votre appareil.</span>
+    </div>
+    <div class="danger" role="note">
+      <span aria-hidden="true">⛔</span>
+      <span>Si Android signale explicitement une <strong>application dangereuse</strong> ou <strong>bloque l'installation</strong>, ne contournez pas ce blocage avant d'avoir fait vérifier le fichier par une source fiable.</span>
     </div>
   </section>
 
